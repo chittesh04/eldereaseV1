@@ -39,6 +39,7 @@ export function useWebSocket({
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (wsRef.current !== ws) return;
         console.log('WebSocket connected to', url);
         setStatus('connected');
         setRetryCount(0);
@@ -63,11 +64,14 @@ export function useWebSocket({
       };
 
       ws.onerror = (error) => {
+        if (wsRef.current !== ws) return;
         console.warn('WebSocket error:', error);
         setStatus('error');
       };
 
       ws.onclose = () => {
+        if (wsRef.current !== ws) return; // Ignore if this is an old socket from StrictMode
+
         setStatus('disconnected');
         wsRef.current = null;
 

@@ -18,9 +18,19 @@ export function ChatContainer({
   const messagesEndRef = useRef(null);
   const containerRef = useRef(null);
 
-  // Auto-scroll to bottom whenever messages change
+  // Smart scroll: only auto-scroll if user is near the bottom
+  // Prevents disrupting elderly users who scroll up to review products
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = containerRef.current;
+    if (!container) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    // Only auto-scroll if user is within 150px of the bottom
+    if (distanceFromBottom < 150) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   return (

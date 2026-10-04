@@ -29,12 +29,7 @@ export function MessageBubble({
           </div>
         );
       case 'step_progress':
-        return (
-          <div className="flex items-center gap-1.5 text-xs md:text-sm font-bold px-2.5 py-1 rounded-md bg-purple-100 text-purple-900 border border-purple-300 w-fit mb-2">
-            <Terminal className="w-4 h-4 text-purple-700" />
-            <span>Visual Agent Live Step {message.step !== undefined ? message.step : ''}</span>
-          </div>
-        );
+        return null;
       case 'command_ready':
         return (
           <div className="flex items-center gap-1.5 text-xs md:text-sm font-bold px-2.5 py-1 rounded-md bg-indigo-100 text-indigo-900 border border-indigo-300 w-fit mb-2">

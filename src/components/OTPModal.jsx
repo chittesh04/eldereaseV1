@@ -9,20 +9,34 @@ export function OTPModal({
   onSubmitOtp,
   promptText,
   isHighContrast,
-  otpLength = 4,
+  otpLength = 6,
 }) {
   const t = translations[lang] || translations.en;
   const [otpDigits, setOtpDigits] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const hiddenInputRef = useRef(null);
 
   useEffect(() => {
     if (isOpen) {
       setOtpDigits('');
+      setSubmitting(false);
       setTimeout(() => {
         hiddenInputRef.current?.focus();
       }, 100);
     }
   }, [isOpen]);
+
+  // Escape key to close modal
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -30,8 +44,8 @@ export function OTPModal({
     if (otpDigits.length < otpLength) {
       const nextOtp = otpDigits + num;
       setOtpDigits(nextOtp);
-      if (nextOtp.length === otpLength) {
-        // Automatically submit when full length is typed
+      if (nextOtp.length === otpLength && !submitting) {
+        setSubmitting(true);
         setTimeout(() => {
           onSubmitOtp(nextOtp);
         }, 200);
@@ -49,7 +63,8 @@ export function OTPModal({
 
   const handleSubmit = (e) => {
     if (e) e.preventDefault();
-    if (otpDigits.length > 0) {
+    if (otpDigits.length > 0 && !submitting) {
+      setSubmitting(true);
       onSubmitOtp(otpDigits);
     }
   };
@@ -60,6 +75,7 @@ export function OTPModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="otp-modal-title"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div 
         className={`w-full max-w-md rounded-3xl p-6 shadow-2xl border-4 transition-all ${
@@ -109,7 +125,8 @@ export function OTPModal({
           onChange={(e) => {
             const clean = e.target.value.replace(/\D/g, '').slice(0, otpLength);
             setOtpDigits(clean);
-            if (clean.length === otpLength) {
+            if (clean.length === otpLength && !submitting) {
+              setSubmitting(true);
               onSubmitOtp(clean);
             }
           }}

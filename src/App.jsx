@@ -10,6 +10,8 @@ import { useWebSocket } from './hooks/useWebSocket';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 import { useSpeechSynthesis } from './hooks/useSpeechSynthesis';
 import { translations } from './constants/translations';
+import { useOrderState } from './hooks/useOrderState';
+import { PurchaseConfirmationModal } from './components/PurchaseConfirmationModal';
 
 export function App() {
   // Language State ('en' | 'ta')
@@ -32,14 +34,27 @@ export function App() {
   ]);
 
   const [inputText, setInputText] = useState('');
-  const [isBotThinking, setIsBotThinking] = useState(false);
-  const [isWaitingForOTP, setIsWaitingForOTP] = useState(false);
-  const [isWaitingForPhone, setIsWaitingForPhone] = useState(false);
-  const [defaultPhone, setDefaultPhone] = useState('');
-  const [otpPrompt, setOtpPrompt] = useState(t.otpDefaultPrompt);
-  const [isOtpModalOpen, setIsOtpModalOpen] = useState(false);
-  const [fontScale, setFontScale] = useState(1.0);
-  const [isHighContrast, setIsHighContrast] = useState(false);
+  
+  // Order state machine (replaces boolean soup)
+  const {
+    phase,
+    isBotThinking,
+    isWaitingForOTP,
+    isWaitingForPhone,
+    isWaitingForConfirmation,
+    isOtpModalOpen,
+    defaultPhone,
+    otpPrompt,
+    confirmationData,
+    dispatch: orderDispatch,
+  } = useOrderState(t.otpDefaultPrompt);
+  const [fontScale, setFontScale] = useState(() => {
+    const saved = localStorage.getItem('elderease_fontScale');
+    return saved ? parseFloat(saved) : 1.0;
+  });
+  const [isHighContrast, setIsHighContrast] = useState(() => {
+    return localStorage.getItem('elderease_highContrast') === 'true';
+  });
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState(null);
@@ -47,11 +62,13 @@ export function App() {
   // Persist language selection
   useEffect(() => {
     localStorage.setItem('elderease_lang', lang);
+    document.documentElement.lang = lang === 'ta' ? 'ta' : 'en';
   }, [lang]);
 
   // Apply font scale dynamically to root
   useEffect(() => {
     document.documentElement.style.setProperty('--font-scale', fontScale.toString());
+    localStorage.setItem('elderease_fontScale', fontScale.toString());
   }, [fontScale]);
 
   // Apply high contrast class to body
@@ -61,6 +78,7 @@ export function App() {
     } else {
       document.body.classList.remove('high-contrast');
     }
+    localStorage.setItem('elderease_highContrast', isHighContrast.toString());
   }, [isHighContrast]);
 
   // Language Switch Handler
@@ -97,8 +115,6 @@ export function App() {
 
   // Handle incoming messages from LIVE Backend / WebSocket
   const handleIncomingMessage = useCallback((data) => {
-    setIsBotThinking(false);
-
     const newMsg = {
       id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
       sender: data.sender || 'bot',
@@ -112,46 +128,50 @@ export function App() {
 
     setMessages((prev) => [...prev, newMsg]);
 
-    // Read aloud if TTS is enabled (skip reading fast step progress to avoid voice clutter)
+    // Read aloud if TTS is enabled (skip step progress to avoid voice clutter)
     if (data.sender !== 'user' && ttsEnabled && data.action !== 'step_progress') {
       setSpeakingMessageId(newMsg.id);
       speak(data.text, false, data.lang || lang);
     }
 
-    // Handle Phone Number Request from live agent
-    if (data.action === 'input_phone') {
-      setIsWaitingForPhone(true);
-      if (data.default_phone) {
-        setDefaultPhone(data.default_phone);
-      }
-    } else {
-      setIsWaitingForPhone(false);
+    // Dispatch to order state machine based on backend action
+    switch (data.action) {
+      case 'input_phone':
+        orderDispatch({ type: 'PHONE_REQUESTED', defaultPhone: data.default_phone || '' });
+        break;
+      case 'otp_requested':
+        orderDispatch({ type: 'OTP_REQUESTED', prompt: data.prompt });
+        break;
+      case 'confirm_purchase':
+        orderDispatch({ type: 'CONFIRMATION_REQUESTED', data: { summary: data.text, verified: data.verified } });
+        break;
+      case 'show_results':
+        orderDispatch({ type: 'PRODUCT_RESULTS' });
+        break;
+      case 'order_success':
+        orderDispatch({ type: 'ORDER_SUCCESS' });
+        try {
+          confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+        } catch (err) {
+          console.warn('Confetti error:', err);
+        }
+        break;
+      case 'step_progress':
+        orderDispatch({ type: 'STEP_PROGRESS' });
+        break;
+      default:
+        // Regular bot responses return to idle
+        if (data.action !== 'searching' && data.action !== 'command_ready') {
+          orderDispatch({ type: 'BOT_RESPONDED' });
+        }
+        break;
     }
 
-    // Handle OTP Verification Challenge from live agent
-    if (data.type === 'otp' || data.action === 'otp_requested') {
-      setIsWaitingForOTP(true);
-      if (data.prompt) {
-        setOtpPrompt(data.prompt);
-      }
-      setIsOtpModalOpen(true);
-    } else if (data.action === 'order_success') {
-      setIsWaitingForOTP(false);
-      setIsOtpModalOpen(false);
-      // Trigger celebratory confetti
-      try {
-        confetti({
-          particleCount: 120,
-          spread: 80,
-          origin: { y: 0.6 }
-        });
-      } catch (err) {
-        console.warn('Confetti error:', err);
-      }
-    } else if (data.action !== 'input_phone') {
-      setIsWaitingForOTP(false);
+    // Also handle OTP via type field
+    if (data.type === 'otp') {
+      orderDispatch({ type: 'OTP_REQUESTED', prompt: data.prompt });
     }
-  }, [ttsEnabled, speak, lang]);
+  }, [ttsEnabled, speak, lang, orderDispatch]);
 
   // Real-time WebSocket Manager Hook
   const {
@@ -160,7 +180,7 @@ export function App() {
     sendMessage: sendWsMessage,
     reconnect: reconnectWs,
   } = useWebSocket({
-    url: 'ws://localhost:8000/ws',
+    url: import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws',
     onMessage: handleIncomingMessage,
   });
 
@@ -209,8 +229,7 @@ export function App() {
 
     setMessages((prev) => [...prev, userMessage]);
     setInputText('');
-    setIsBotThinking(true);
-    setIsWaitingForPhone(false);
+    orderDispatch({ type: 'USER_SENT_MESSAGE' });
 
     const payload = {
       sender: 'user',
@@ -223,13 +242,15 @@ export function App() {
     const sent = sendWsMessage(payload);
 
     if (!sent) {
-      setIsBotThinking(false);
+      orderDispatch({ type: 'BOT_RESPONDED' });
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now().toString(),
           sender: 'bot',
-          text: '⚠️ **Backend Connection Error**: Could not send message to `ws://localhost:8000/ws`. Please ensure the live Python server is running.',
+          text: lang === 'ta'
+            ? '⚠️ **பின்னணி இணைப்பு பிழை**: செய்தியை அனுப்ப முடியவில்லை. பைதான் சர்வர் இயங்குகிறதா என்று சரிபார்க்கவும்.'
+            : '⚠️ **Backend Connection Error**: Could not send message. Please ensure the live Python server is running.',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
@@ -242,7 +263,7 @@ export function App() {
   };
 
   const handleOtpSubmit = (otpCode) => {
-    setIsOtpModalOpen(false);
+    orderDispatch({ type: 'CLOSE_OTP_MODAL' });
     handleSendMessage(otpCode);
   };
 
@@ -258,9 +279,7 @@ export function App() {
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       },
     ]);
-    setIsWaitingForOTP(false);
-    setIsWaitingForPhone(false);
-    setIsBotThinking(false);
+    orderDispatch({ type: 'RESET' });
   };
 
   const handleManualSpeak = (text) => {
@@ -327,7 +346,7 @@ export function App() {
         onStopVoice={stopListening}
         isVoiceSupported={isVoiceSupported}
         voiceError={voiceError}
-        onOpenOtpKeypad={() => setIsOtpModalOpen(true)}
+        onOpenOtpKeypad={() => orderDispatch({ type: 'OPEN_OTP_MODAL' })}
         isHighContrast={isHighContrast}
       />
 
@@ -335,9 +354,25 @@ export function App() {
       <OTPModal
         lang={lang}
         isOpen={isOtpModalOpen}
-        onClose={() => setIsOtpModalOpen(false)}
+        onClose={() => orderDispatch({ type: 'CLOSE_OTP_MODAL' })}
         onSubmitOtp={handleOtpSubmit}
         promptText={otpPrompt}
+        isHighContrast={isHighContrast}
+      />
+
+      {/* Purchase Confirmation Modal */}
+      <PurchaseConfirmationModal
+        lang={lang}
+        isOpen={isWaitingForConfirmation}
+        onConfirm={() => {
+          sendWsMessage({ sender: 'user', text: 'yes', lang, timestamp: new Date().toISOString() });
+          orderDispatch({ type: 'USER_SENT_MESSAGE' });
+        }}
+        onCancel={() => {
+          sendWsMessage({ sender: 'user', text: 'no', lang, timestamp: new Date().toISOString() });
+          orderDispatch({ type: 'ORDER_CANCELLED' });
+        }}
+        summary={confirmationData?.summary || ''}
         isHighContrast={isHighContrast}
       />
 

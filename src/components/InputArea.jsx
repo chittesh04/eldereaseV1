@@ -10,7 +10,7 @@ export function InputArea({
   isBotThinking,
   isWaitingForOTP,
   isWaitingForPhone,
-  defaultPhone = '8508990457',
+  defaultPhone = '',
   isListening,
   onStartVoice,
   onStopVoice,
@@ -173,7 +173,7 @@ export function InputArea({
                   : isWaitingForOTP 
                     ? t.inputOtpPlaceholder 
                     : isWaitingForPhone
-                      ? (lang === 'ta' ? 'மொபைல் எண் உள்ளிடவும் (எ.கா: 8508990457)...' : 'Type phone number (e.g., 8508990457)...')
+                      ? (lang === 'ta' ? 'மொபைல் எண் உள்ளிடவும்...' : 'Type your mobile number...')
                       : t.inputPlaceholder
               }
               className={`w-full touch-target px-4 py-3.5 rounded-2xl text-elder-base md:text-elder-lg font-semibold border-2 transition-all outline-none shadow-inner ${

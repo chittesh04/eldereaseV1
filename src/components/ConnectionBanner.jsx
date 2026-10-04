@@ -10,6 +10,15 @@ export function ConnectionBanner({
   isHighContrast,
 }) {
   const t = translations[lang] || translations.en;
+  const [isRetrying, setIsRetrying] = React.useState(false);
+
+  const handleReconnect = () => {
+    if (isRetrying) return;
+    setIsRetrying(true);
+    onReconnect();
+    setTimeout(() => setIsRetrying(false), 3000);
+  };
+
   if (status === 'connected') return null;
 
   return (
@@ -34,14 +43,15 @@ export function ConnectionBanner({
             <p className="text-xs font-semibold opacity-90">
               {status === 'connecting'
                 ? `${t.reconnectingDesc} (${retryCount} retries)...`
-                : 'Live agent server is offline. Please run: python backend/live_agent_server.py'}
+                : t.disconnectedDesc}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap justify-center">
           <button
-            onClick={onReconnect}
+            onClick={handleReconnect}
+            disabled={isRetrying}
             className="touch-target px-5 py-2 rounded-xl bg-red-700 hover:bg-red-800 text-white font-black text-sm flex items-center gap-2 transition-all shadow"
             aria-label={t.retryConnection}
           >

@@ -28,12 +28,12 @@ export const translations = {
     // Welcome Screen
     welcomeTitle: "Vanakam! How can I help you shop today?",
     welcomeSubtitle: "You can type your order below or simply tap the big green microphone to speak naturally in plain words.",
-    quickSuggestionsTitle: "Quick sample requests (tap to try):",
+    quickSuggestionsTitle: "Select a store to start shopping:",
     starterPrompts: [
-      { label: "🧅 Order 1kg Fresh Onions", text: "Please order 1kg fresh red onions" },
-      { label: "🥛 2 Packets Toned Milk", text: "I need 2 packets of toned milk" },
-      { label: "🍞 Whole Wheat Bread & Butter", text: "Order 1 pack whole wheat brown bread and butter" },
-      { label: "🍎 1kg Shimla Apples", text: "Order 1kg fresh Shimla apples" },
+      { label: "🛒 Blinkit", text: "Shop on Blinkit" },
+      { label: "🛒 Zepto", text: "Shop on Zepto" },
+      { label: "🛒 Amazon", text: "Shop on Amazon" },
+      { label: "🛒 Instamart", text: "Shop on Instamart" },
     ],
 
     // Chat Message Actions & Badges
@@ -65,6 +65,26 @@ export const translations = {
     otpDefaultPrompt: "Please enter the 4-digit verification code sent to your mobile phone.",
     otpConfirmButton: "Confirm & Place Order",
     clearKey: "Clear",
+
+    // Product Selection
+    productListHeading: "Tap an item or say the number (1-5):",
+    itemsFound: "items found",
+    priceLabel: "Price:",
+    addButton: "Add",
+    productRegionLabel: "Product search results",
+
+    // Visual Agent Steps
+    visualAgentStep: "Visual Agent Live Step",
+    commandDispatched: "Command Dispatched to Web Agent",
+    phoneVerificationRequired: "Phone Verification Required",
+
+    // Purchase Confirmation
+    confirmOrderTitle: "Confirm Your Order",
+    confirmOrderSubtitle: "Please review before placing the order",
+    confirmOrderWarning: "This action cannot be undone. Once confirmed, the order will be placed and payment will be processed.",
+    confirmButton: "Place Order",
+    cancelButton: "Cancel",
+    orderCancelled: "Order cancelled.",
 
     // Connection Banner
     disconnectedTitle: "⚠️ Disconnected from Backend Server",
@@ -109,12 +129,12 @@ export const translations = {
     // Welcome Screen
     welcomeTitle: "வணக்கம்! இன்று உங்களுக்கு என்ன மளிகைப் பொருட்கள் வேண்டும்?",
     welcomeSubtitle: "கீழே நீங்கள் வாங்க வேண்டியதை தட்டச்சு செய்யலாம் அல்லது பெரிய பச்சை மைக் பொத்தானைத் தொட்டு தமிழில் பேசலாம்.",
-    quickSuggestionsTitle: "மாதிரி கோரிக்கைகள் (தொட்டு ஆர்டர் செய்யுங்கள்):",
+    quickSuggestionsTitle: "கடையை தேர்ந்தெடுக்கவும்:",
     starterPrompts: [
-      { label: "🧅 1 கிலோ வெங்காயம் ஆர்டர் செய்", text: "1 கிலோ புதிய வெங்காயம் ஆர்டர் செய்" },
-      { label: "🥛 2 பாக்கெட் பால் வேண்டும்", text: "எனக்கு 2 பாக்கெட் பால் வேண்டும்" },
-      { label: "🍞 கோதுமை ரொட்டி மற்றும் வெண்ணெய்", text: "1 பாக்கெட் கோதுமை ரொட்டி மற்றும் வெண்ணெய் ஆர்டர் செய்" },
-      { label: "🍎 1 கிலோ ஆப்பிள்", text: "1 கிலோ சிம்லா ஆப்பிள் ஆர்டர் செய்" },
+      { label: "🛒 Blinkit", text: "Blinkit இல் ஷாப்பிங் செய்" },
+      { label: "🛒 Zepto", text: "Zepto இல் ஷாப்பிங் செய்" },
+      { label: "🛒 Amazon", text: "Amazon இல் ஷாப்பிங் செய்" },
+      { label: "🛒 Instamart", text: "Instamart இல் ஷாப்பிங் செய்" },
     ],
 
     // Chat Message Actions & Badges
@@ -146,6 +166,26 @@ export const translations = {
     otpDefaultPrompt: "உங்கள் மொபைல் எண்ணிற்கு அனுப்பப்பட்ட 4 இலக்க சரிபார்ப்புக் குறியீட்டை உள்ளிடவும்.",
     otpConfirmButton: "உறுதிசெய்து ஆர்டர் செய்யவும்",
     clearKey: "அழி",
+
+    // Product Selection
+    productListHeading: "தேர்ந்தெடுக்க வேண்டிய பொருள் (1-5):",
+    itemsFound: "பொருட்கள்",
+    priceLabel: "விலை:",
+    addButton: "சேர்",
+    productRegionLabel: "தயாரிப்பு பட்டியல்",
+
+    // Visual Agent Steps
+    visualAgentStep: "உதவியாளர் நேரடி படி",
+    commandDispatched: "கட்டளை அனுப்பப்பட்டது",
+    phoneVerificationRequired: "தொலைபேசி சரிபார்ப்பு தேவை",
+
+    // Purchase Confirmation
+    confirmOrderTitle: "ஆர்டரை உறுதிசெய்யவும்",
+    confirmOrderSubtitle: "ஆர்டரை செய்ய முன்பு சரிபார்க்கவும்",
+    confirmOrderWarning: "இது ஒரு மீள முடியாத செயல். உறுதிசெய்த பிறகு ஆர்டர் செய்யப்பட்டு கட்டணம் செலுத்தப்படும்.",
+    confirmButton: "ஆர்டர் செய்",
+    cancelButton: "ரத்து செய்",
+    orderCancelled: "ஆர்டர் ரத்து செய்யப்பட்டது.",
 
     // Connection Banner
     disconnectedTitle: "⚠️ சர்வர் இணைப்பு துண்டிக்கப்பட்டது",
