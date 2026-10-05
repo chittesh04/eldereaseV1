@@ -17,6 +17,7 @@ export function useWebSocket({
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const onMessageRef = useRef(onMessage);
+  const messageQueueRef = useRef([]);
 
   useEffect(() => {
     onMessageRef.current = onMessage;
@@ -43,6 +44,12 @@ export function useWebSocket({
         console.log('WebSocket connected to', url);
         setStatus('connected');
         setRetryCount(0);
+
+        // Flush queued messages
+        while (messageQueueRef.current.length > 0) {
+          const msg = messageQueueRef.current.shift();
+          ws.send(JSON.stringify(msg));
+        }
       };
 
       ws.onmessage = (event) => {
@@ -119,8 +126,9 @@ export function useWebSocket({
       wsRef.current.send(JSON.stringify(messageObj));
       return true;
     } else {
-      console.warn('WebSocket is not open. Message not sent via socket.');
-      return false;
+      console.warn('WebSocket is not open. Queuing message.');
+      messageQueueRef.current.push(messageObj);
+      return true;
     }
   }, [isDemoMode]);
 

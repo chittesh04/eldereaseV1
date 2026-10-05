@@ -173,6 +173,8 @@ export function App() {
     }
   }, [ttsEnabled, speak, lang, orderDispatch]);
 
+  const [wsUrl, setWsUrl] = useState(import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws');
+
   // Real-time WebSocket Manager Hook
   const {
     status: wsStatus,
@@ -180,7 +182,7 @@ export function App() {
     sendMessage: sendWsMessage,
     reconnect: reconnectWs,
   } = useWebSocket({
-    url: import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws',
+    url: wsUrl,
     onMessage: handleIncomingMessage,
   });
 
@@ -212,6 +214,26 @@ export function App() {
   const handleSendMessage = (textToSend) => {
     if (!textToSend.trim()) return;
 
+    const lowerText = textToSend.toLowerCase();
+    let targetUrl = wsUrl;
+    
+    if (lowerText.includes('zepto')) {
+      targetUrl = 'ws://localhost:8001/ws';
+    } else if (lowerText.includes('blinkit')) {
+      targetUrl = 'ws://localhost:8000/ws';
+    }
+
+    if (targetUrl !== wsUrl) {
+      setWsUrl(targetUrl);
+      // Wait briefly for the new WebSocket to begin connecting so it can queue the message
+      setTimeout(() => actuallySendMessage(textToSend), 100);
+      return;
+    }
+
+    actuallySendMessage(textToSend);
+  };
+
+  const actuallySendMessage = (textToSend) => {
     // Stop ongoing speech when user speaks/sends
     stopTTS();
 
@@ -241,7 +263,7 @@ export function App() {
 
     const sent = sendWsMessage(payload);
 
-    if (!sent) {
+    if (!sent && false) { // Removed error block since we now queue messages
       orderDispatch({ type: 'BOT_RESPONDED' });
       setMessages((prev) => [
         ...prev,
