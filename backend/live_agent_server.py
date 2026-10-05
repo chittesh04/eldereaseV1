@@ -616,16 +616,7 @@ class AgentSession:
 
         self.clean_command = clean_command
 
-        # Send command announcement to UI (auto-translated)
-        self.send_localized({
-            "sender": "bot",
-            "action": "command_ready",
-            "text": (
-                f"✅ **GENERATED AGENT COMMAND:**\n\n`{clean_command}`\n\n"
-                f"🚀 **Launching Multimodal Visual Agent...**"
-            ),
-            "timestamp": datetime.now().strftime("%I:%M %p")
-        })
+
 
         # STEP 4: Launch Web Agent Execution
         self.execute_web_agent(clean_command)
@@ -677,13 +668,7 @@ class AgentSession:
         5. If a login screen appears, use 'input_phone' for the mobile number and 'input_otp' for the OTP.
         """
 
-        self.send_localized({
-            "sender": "bot",
-            "action": "step_progress",
-            "step": 0,
-            "text": f"🌐 **Navigating to {start_url}**\n\n🎯 Fulfilling Order: `{final_command}`",
-            "timestamp": datetime.now().strftime("%I:%M %p")
-        })
+
 
         with sync_playwright() as p:
             browser = None
