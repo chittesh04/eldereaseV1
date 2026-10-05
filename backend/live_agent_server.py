@@ -831,6 +831,13 @@ class AgentSession:
                                 qty_needed = calculate_quantity_needed(requested_qty, item_weight)
                                 product["qty_needed"] = qty_needed
                                 product["requested_qty_label"] = final_command  # So UI can show what user asked for
+                                
+                                # Translate product name dynamically if in Tamil
+                                if self.lang == "ta":
+                                    product["name"] = localize_message(
+                                        product["name"], self.lang, 
+                                        llm_client=local_client, model_name=MODEL_NAME
+                                    )
 
                             # Send interactive Product Cards to UI and wait for user's selection
                             user_choice_str = self.wait_for_user_input(

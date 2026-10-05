@@ -61,7 +61,7 @@ export function ProductSelectionCard({
                   </div>
                   <div className="flex flex-wrap items-center gap-x-2 mt-0.5">
                     <span className="text-sm font-black text-emerald-700 dark:text-yellow-400">
-                      Price: {product.price}
+                      {t.priceLabel} {product.price}
                     </span>
                     {weight && (
                       <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md ${

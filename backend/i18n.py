@@ -8,11 +8,12 @@ Architecture:
   - User-facing messages are translated to Tamil when `lang == "ta"`.
   - User input in Tamil is translated to English before internal processing.
   - Static messages use a pre-built dictionary (zero latency).
-  - Dynamic/unknown text falls back to LLM-based translation.
+  - Dynamic/unknown text is translated via Google's direct endpoint (requests).
 """
 
 import logging
-import re
+import time
+import requests
 
 logger = logging.getLogger("ElderEase-i18n")
 
@@ -74,6 +75,57 @@ MESSAGES = {
         "ஏஜென்ட் இயக்க Playwright கிடைக்கவில்லை.",
 }
 
+# ==========================================
+# IN-MEMORY TRANSLATION CACHE
+# ==========================================
+# Keyed by (text, target_lang) so identical text is never translated twice.
+_translation_cache: dict = {}
+
+
+def _translate(text: str, source: str, target: str) -> str:
+    """
+    Translates text using Google's direct lightweight endpoint (Option 1).
+    No local LLM / VRAM required. Caches results to avoid duplicate requests.
+    """
+    text = text.strip()
+    if not text:
+        return ""
+
+    cache_key = (text, target)
+    if cache_key in _translation_cache:
+        return _translation_cache[cache_key]
+
+    url = "https://translate.googleapis.com/translate_a/single"
+    params = {
+        "client": "gtx",
+        "sl": source,
+        "tl": target,
+        "dt": "t",
+        "q": text,
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+    }
+
+    try:
+        time.sleep(0.1)  # Gentle throttle
+        response = requests.get(url, params=params, headers=headers, timeout=6)
+        
+        if response.status_code == 200:
+            data = response.json()
+            # Google returns an array of segments in data[0]
+            if data and data[0]:
+                translated = "".join(segment[0] for segment in data[0] if segment and segment[0])
+                if translated:
+                    _translation_cache[cache_key] = translated
+                    return translated
+        else:
+            logger.warning("Google translation HTTP error (%s -> %s): Status %s", source, target, response.status_code)
+    except Exception as e:
+        logger.warning("Translation request failed (%s -> %s): %s", source, target, e)
+
+    return text
+
 
 def t(text: str, lang: str) -> str:
     """
@@ -86,72 +138,22 @@ def t(text: str, lang: str) -> str:
     return text
 
 
-def translate_dynamic(text: str, target_lang: str, llm_client=None, model_name: str = "") -> str:
-    """
-    Translate dynamic/unknown text using the LLM.
-    Used for LLM-generated questions, status messages, and summaries
-    that aren't in the static dictionary.
-
-    Args:
-        text: The text to translate.
-        target_lang: "ta" for Tamil, "en" for English.
-        llm_client: An OpenAI-compatible client instance.
-        model_name: The model to use for translation.
-
-    Returns:
-        Translated text, or the original if translation fails.
-    """
-    if target_lang == "en":
-        # Already in English or translating to English
-        direction = "Tamil to English"
-        instruction = "Translate the following Tamil text to simple English. Return ONLY the translated text, nothing else."
-    elif target_lang == "ta":
-        direction = "English to Tamil"
-        instruction = "Translate the following English text to Tamil (தமிழ்). Use simple, everyday Tamil that elderly people can understand. Return ONLY the translated text, nothing else."
-    else:
-        return text
-
-    if not llm_client:
-        return text
-
-    try:
-        response = llm_client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system", "content": instruction},
-                {"role": "user", "content": text}
-            ],
-            temperature=0.3,
-        )
-        result = response.choices[0].message.content.strip()
-        # Strip any <think> tags from reasoning models
-        result = re.sub(r'<think>.*?</think>', '', result, flags=re.DOTALL).strip()
-        if result:
-            return result
-    except Exception as e:
-        logger.warning("LLM translation failed (%s): %s", direction, e)
-
-    return text
-
-
 def localize_message(text: str, lang: str, llm_client=None, model_name: str = "") -> str:
     """
-    Smart message localization: tries static dictionary first,
-    falls back to LLM translation for unknown dynamic text.
+    Translate an English message to the user's language.
+    1. If exact match in static dictionary → instant return (zero latency).
+    2. Otherwise → send directly to the Google Translate endpoint.
     """
     if lang != "ta":
         return text
 
-    # Try static dictionary first (instant, free)
+    # Try static dictionary first (instant, 0 latency)
     static = MESSAGES.get(text)
     if static:
         return static
 
-    # Fall back to LLM translation for dynamic text
-    if llm_client:
-        return translate_dynamic(text, "ta", llm_client, model_name)
-
-    return text
+    # Fallback to direct dynamic translation
+    return _translate(text, source='en', target='ta')
 
 
 def to_english(text: str, lang: str, llm_client=None, model_name: str = "") -> str:
@@ -170,7 +172,5 @@ def to_english(text: str, lang: str, llm_client=None, model_name: str = "") -> s
     if ascii_ratio > 0.8:
         return text  # Already in English, don't translate
 
-    if llm_client:
-        return translate_dynamic(text, "en", llm_client, model_name)
-
-    return text
+    # Translate Tamil back to English
+    return _translate(text, source='ta', target='en')
