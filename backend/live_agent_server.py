@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import base64
@@ -124,6 +125,61 @@ def root():
 # HELPER FUNCTIONS (from your actual script)
 # ==========================================
 
+def parse_weight_to_grams(weight_str: str) -> Optional[float]:
+    """Parse a weight/quantity string like '250 g', '1 kg', '500 ml', '1 L', '2 pcs' into a
+    normalized numeric value in base units (grams for weight, ml for volume, count for pieces).
+    Returns None if parsing fails.
+    """
+    if not weight_str:
+        return None
+    weight_str = weight_str.strip().lower()
+    # Match patterns like '250g', '1.5 kg', '500 ml', '1 l', '2 pcs', '6 pack'
+    m = re.match(r'^([\d.]+)\s*(kg|g|gm|gram|grams|l|litre|liter|litres|liters|ml|pcs|pc|piece|pieces|pack|unit|units|dozen|dz)s?$', weight_str)
+    if not m:
+        return None
+    value = float(m.group(1))
+    unit = m.group(2)
+    # Normalize to base units
+    unit_multipliers = {
+        'kg': 1000, 'g': 1, 'gm': 1, 'gram': 1, 'grams': 1,
+        'l': 1000, 'litre': 1000, 'liter': 1000, 'litres': 1000, 'liters': 1000,
+        'ml': 1,
+        'pcs': 1, 'pc': 1, 'piece': 1, 'pieces': 1, 'pack': 1, 'unit': 1, 'units': 1,
+        'dozen': 12, 'dz': 12,
+    }
+    multiplier = unit_multipliers.get(unit, 1)
+    return value * multiplier
+
+
+def extract_requested_quantity(command: str) -> Optional[float]:
+    """Extract the user's requested quantity from the command string.
+    E.g. 'Order 1 kg onion' -> 1000.0 (grams)
+         'Order 500 g rice'  -> 500.0 (grams)
+         'Order 2 packets milk' -> 2.0 (count)
+    Returns None if no quantity pattern is found.
+    """
+    if not command:
+        return None
+    command_lower = command.lower()
+    # Match patterns like '1 kg', '500 g', '2 litres', '250 ml', '3 pcs'
+    m = re.search(r'(\d+\.?\d*)\s*(kg|g|gm|gram|grams|l|litre|liter|litres|liters|ml|pcs|pc|piece|pieces|pack|packs|unit|units|dozen|dz)', command_lower)
+    if not m:
+        return None
+    return parse_weight_to_grams(m.group(0))
+
+
+def calculate_quantity_needed(requested_grams: Optional[float], item_weight_str: str) -> int:
+    """Calculate how many units of an item are needed to fulfill the requested quantity.
+    Returns 1 if either value is missing or unparseable (safe fallback).
+    """
+    if requested_grams is None:
+        return 1
+    item_grams = parse_weight_to_grams(item_weight_str)
+    if item_grams is None or item_grams <= 0:
+        return 1
+    return max(1, math.ceil(requested_grams / item_grams))
+
+
 def get_clean_text(raw_text: str, prefix: str) -> str:
     """Remove <think> tags and grab the specific formatted text from local LLM."""
     clean_text = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()
@@ -208,7 +264,13 @@ def get_interactive_elements(page):
             returnedElements.push({
                 "id": idCounter,
                 "type": el.tagName.toLowerCase(),
-                "text": text.substring(0, 100)
+                "text": text.substring(0, 100),
+                "rect": {
+                    "x": rect.left,
+                    "y": rect.top,
+                    "w": rect.width,
+                    "h": rect.height
+                }
             });
 
             taggedElements.push({ el: el, rect: rect });
@@ -222,19 +284,26 @@ def get_interactive_elements(page):
 
 def ask_llm(goal, elements_list, action_history, screenshot_bytes, previous_error=None):
     """THE MULTIMODAL BRAIN: Tries Local LLM first, falls back to Gemini on failure."""
+    recent_history = action_history[-6:] if len(action_history) > 6 else action_history
+    
+    # Strip 'rect' from elements to save context limit tokens
+    prompt_elements = []
+    for el in elements_list[:50]:
+        prompt_elements.append({k: v for k, v in el.items() if k != "rect"})
+        
     prompt = f"""
     You are an autonomous visual web agent. 
     Your ultimate goal is: "{goal}"
     
     Here is the history of actions you have ALREADY taken:
-    {json.dumps(action_history, indent=2)}
+    {json.dumps(recent_history, separators=(',', ':'))}
     *CRITICAL RULE: Do NOT repeat the exact same action if it is already in your history!*
     
     I have drawn RED BOUNDING BOXES with numbers over clickable elements in the screenshot.
     Use these visual numbers as the "id" for your actions. 
     
     Here is a text-based list of the top elements for fallback:
-    {json.dumps(elements_list[:75], indent=2)} 
+    {json.dumps(prompt_elements, separators=(',', ':'))} 
     """
     
     if previous_error:
@@ -244,7 +313,7 @@ def ask_llm(goal, elements_list, action_history, screenshot_bytes, previous_erro
     Based on the visual layout and goal:
     
     IMPORTANT RULES:
-    1. SEARCH PHASE: Once search results are visible, return "show_results" with the top 5 products. Each product MUST have "name" (the exact product name from the page), "price" (the price as shown, e.g. "₹45"), and "add_button_id" (the red-box ID number of its Add/+ button). Do NOT just click ADD.
+    1. SEARCH PHASE: Once search results are visible, return "show_results" with the top 5 products. Each product MUST have "name" (the exact product name from the page), "price" (the price as shown, e.g. "₹45"), "weight" (the quantity/weight as shown on the product, e.g. "250 g", "1 kg", "500 ml", "1 L", "6 pcs"), and "add_button_id" (the red-box ID number of its Add/+ button). Do NOT just click ADD.
     2. LOGIN PHASE: If you see an input field asking for a "Phone Number" or "Mobile Number", use the "input_phone" action.
     3. LOGIN PHASE: If you see an input field asking for an "OTP" or "Verification Code", use the "input_otp" action.
     4. TYPING TEXT: If you want to enter text into a search bar or address box, use the "type" action directly! DO NOT use "click" to enter text.
@@ -261,7 +330,7 @@ def ask_llm(goal, elements_list, action_history, screenshot_bytes, previous_erro
     1. {"reasoning": "...", "status": "...", "action": "click", "id": 12}
     2. {"reasoning": "...", "status": "...", "action": "type", "id": 15, "text": "search term"}
     3. {"reasoning": "...", "status": "...", "action": "scroll"}
-    4. {"reasoning": "...", "status": "...", "action": "show_results", "results": [{"name": "Product Name", "price": "₹XX", "add_button_id": 12}, ...]}
+    4. {"reasoning": "...", "status": "...", "action": "show_results", "results": [{"name": "Product Name", "price": "₹XX", "weight": "250 g", "add_button_id": 12}, ...]}
     5. {"reasoning": "...", "status": "...", "action": "input_phone", "id": 15}
     6. {"reasoning": "...", "status": "...", "action": "input_otp", "id": 18}
     7. {"reasoning": "...", "status": "...", "action": "ask_user", "question": "..."}
@@ -285,7 +354,7 @@ def ask_llm(goal, elements_list, action_history, screenshot_bytes, previous_erro
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/png;base64,{base64_image}"
+                                    "url": f"data:image/jpeg;base64,{base64_image}"
                                 }
                             }
                         ]
@@ -313,7 +382,7 @@ def ask_llm(goal, elements_list, action_history, screenshot_bytes, previous_erro
 
     if gemini_client:
         try:
-            image_part = types.Part.from_bytes(data=screenshot_bytes, mime_type='image/png')
+            image_part = types.Part.from_bytes(data=screenshot_bytes, mime_type='image/jpeg')
             response = gemini_client.models.generate_content(
                 model='gemini-2.5-flash', 
                 contents=[prompt, image_part],
@@ -339,7 +408,7 @@ def ask_llm(goal, elements_list, action_history, screenshot_bytes, previous_erro
     return {
         "reasoning": "Both LLM providers are unavailable. Cannot safely continue.",
         "status": "Assistant is temporarily unavailable.",
-        "action": "done",
+        "action": "abort",
         "summary": "The shopping assistant is temporarily unavailable. No order has been placed. Please try again later."
     }
 
@@ -566,10 +635,6 @@ class AgentSession:
         command_lower = final_command.lower()
         if "zepto" in command_lower:
             target_site = "https://www.zeptonow.com/"
-        elif "amazon" in command_lower:
-            target_site = "https://www.amazon.in/"
-        elif "instamart" in command_lower:
-            target_site = "https://www.swiggy.com/instamart"
         else:
             target_site = "https://blinkit.com/"
             
@@ -639,7 +704,7 @@ class AgentSession:
             
                 while step <= 25 and self.is_active:
                     elements = get_interactive_elements(page)
-                    screenshot_bytes = page.screenshot(type="png")
+                    screenshot_bytes = page.screenshot(type="jpeg", quality=40)
                 
                     decision = ask_llm(goal, elements, action_history, screenshot_bytes, last_error)
                     last_error = None 
@@ -757,6 +822,16 @@ class AgentSession:
                             
                             top_results = results[:5]
 
+                            # Calculate the user's requested quantity from the command
+                            requested_qty = extract_requested_quantity(final_command)
+
+                            # Enrich each result with calculated quantity needed
+                            for product in top_results:
+                                item_weight = product.get("weight", "")
+                                qty_needed = calculate_quantity_needed(requested_qty, item_weight)
+                                product["qty_needed"] = qty_needed
+                                product["requested_qty_label"] = final_command  # So UI can show what user asked for
+
                             # Send interactive Product Cards to UI and wait for user's selection
                             user_choice_str = self.wait_for_user_input(
                                 action="show_results",
@@ -772,6 +847,8 @@ class AgentSession:
                         
                             selected_item = top_results[choice_idx]
                             target_id = selected_item.get("add_button_id")
+                            qty_needed = selected_item.get("qty_needed", 1)
+
                             if target_id is None:
                                 # Re-observe page instead of using a magic fallback ID
                                 logger.warning("No add_button_id found for selected product. Re-observing page.")
@@ -791,20 +868,170 @@ class AgentSession:
                                     })
                                     continue
 
+                            # Build a clear status message showing quantity math
+                            item_weight_display = selected_item.get('weight', 'N/A')
+                            if qty_needed > 1:
+                                cart_msg = (
+                                    f"✅ **Selected:** {selected_item.get('name')} "
+                                    f"({item_weight_display} × {qty_needed} = your requested quantity). "
+                                    f"Adding {qty_needed} to cart..."
+                                )
+                            else:
+                                cart_msg = (
+                                    f"✅ **Selected:** {selected_item.get('name')} "
+                                    f"(Price: {selected_item.get('price')}). Adding to cart..."
+                                )
+
                             self.send_localized({
                                 "sender": "bot",
                                 "action": "cart_update",
-                                "text": f"✅ **Selected:** {selected_item.get('name')} (Price: {selected_item.get('price')}). Adding to cart...",
+                                "text": cart_msg,
                                 "timestamp": datetime.now().strftime("%I:%M %p")
                             })
 
+                            # Click the Add button qty_needed times.
+                            # APPROACH: On grocery sites (Blinkit, Zepto, Swiggy), after clicking "Add",
+                            # the button transforms into a quantity widget: [−] [1] [+].
+                            # The "+" is often an SVG icon (NOT text), so text-based searches fail.
+                            # Instead, we:
+                            #   1. Record the Add button's bounding box
+                            #   2. After first click, find the element at that position
+                            #   3. Walk up to the quantity container
+                            #   4. Click the RIGHTMOST clickable child (always the increment button)
+
+                            successfully_added = 0
+
+                            # Record the position of the original Add button before clicking
+                            add_btn_box = None
                             try:
-                                page.locator(f'[custom-agent-id="{target_id}"]').first.click(timeout=5000)
+                                add_btn = page.locator(f'[custom-agent-id="{target_id}"]').first
+                                add_btn_box = add_btn.bounding_box()
+                                logger.info("Add button bounding box: x=%.0f, y=%.0f, w=%.0f, h=%.0f",
+                                            add_btn_box['x'], add_btn_box['y'],
+                                            add_btn_box['width'], add_btn_box['height'])
                             except Exception:
-                                page.keyboard.press("Enter")
+                                logger.warning("Could not get Add button bounding box")
+
+                            for click_i in range(qty_needed):
+                                try:
+                                    if click_i == 0:
+                                        # First click: use the tagged Add button
+                                        try:
+                                            # We use a standard click first. We DO NOT use force=True because 
+                                            # if there is a transparent overlay (like a link to the PDP), 
+                                            # force=True will click the overlay and navigate away!
+                                            btn = page.locator(f'[custom-agent-id="{target_id}"]').first
+                                            btn.click(timeout=5000)
+                                        except Exception as first_err:
+                                            logger.warning("Standard click failed, falling back to JS click: %s", str(first_err)[:80])
+                                            # If intercepted by an overlay, dispatch a programmatic click directly to the button
+                                            btn.evaluate('node => node.click()')
+                                        successfully_added += 1
+                                        logger.info("Click 1/%d succeeded (Add button ID %s)", qty_needed, target_id)
+                                        time.sleep(2.5)  # Wait for DOM to transform Add -> [−][1][+]
+                                    else:
+                                        # Subsequent clicks: find and click the increment button.
+                                        plus_clicked = False
+
+                                        if add_btn_box:
+                                            try:
+                                                # Playwright locator for common increment buttons on Zepto, Blinkit, Swiggy
+                                                # Zepto often uses aria-label="Increase Quantity"
+                                                # Blinkit often uses a plus icon or similar
+                                                inc_selector = (
+                                                    'button[aria-label*="increase" i], '
+                                                    'button[aria-label*="increment" i], '
+                                                    'button[aria-label*="add" i]:not(:has-text("Add")), '
+                                                    '[data-testid*="increase" i], '
+                                                    '[data-testid*="increment" i], '
+                                                    '[class*="plus" i], '
+                                                    '[class*="increment" i]'
+                                                )
+                                                
+                                                # First try to find by specific semantic locators
+                                                candidates = page.locator(inc_selector)
+                                                
+                                                # If none found, fallback to anything with a "+" text
+                                                if candidates.count() == 0:
+                                                    candidates = page.locator('button:has-text("+"), div:has-text("+"):not(:has(div))')
+                                                
+                                                closest_btn = None
+                                                min_dist = float('inf')
+                                                
+                                                # Original Add button center
+                                                orig_cx = add_btn_box['x'] + add_btn_box['width'] / 2
+                                                orig_cy = add_btn_box['y'] + add_btn_box['height'] / 2
+                                                
+                                                for i in range(candidates.count()):
+                                                    btn = candidates.nth(i)
+                                                    if btn.is_visible():
+                                                        box = btn.bounding_box()
+                                                        if box:
+                                                            cx = box['x'] + box['width'] / 2
+                                                            cy = box['y'] + box['height'] / 2
+                                                            # Check if the increment button is geometrically related to the original button.
+                                                            # Instead of center distance (which fails on wide buttons),
+                                                            # check if it's within or very close to the original bounding box.
+                                                            
+                                                            dx = max(0, add_btn_box['x'] - cx, cx - (add_btn_box['x'] + add_btn_box['width']))
+                                                            dy = max(0, add_btn_box['y'] - cy, cy - (add_btn_box['y'] + add_btn_box['height']))
+                                                            dist_to_box = (dx**2 + dy**2)**0.5
+                                                            
+                                                            # It should be inside or within 50px of the original button's area
+                                                            if dist_to_box <= 50 and dist_to_box < min_dist:
+                                                                min_dist = dist_to_box
+                                                                closest_btn = btn
+                                                                
+                                                if closest_btn:
+                                                    logger.info("Found closest increment button (dist=%.0f)", min_dist)
+                                                    # Click it via Playwright to ensure proper event dispatching
+                                                    closest_btn.click(timeout=3000, force=True)
+                                                    plus_clicked = True
+                                                else:
+                                                    logger.warning("No increment candidate found within 80px")
+                                            except Exception as pw_err:
+                                                logger.warning("Playwright increment search failed: %s", str(pw_err)[:100])
+
+                                        # Fallback: click the right edge of where the Add button was
+                                        # The quantity widget replaces the Add button in the same spot,
+                                        # and "+" is always on the far right.
+                                        if not plus_clicked and add_btn_box:
+                                            try:
+                                                right_x = add_btn_box['x'] + add_btn_box['width'] - 10
+                                                center_y = add_btn_box['y'] + add_btn_box['height'] / 2
+                                                logger.info("Fallback: clicking right edge at (%.0f, %.0f)", right_x, center_y)
+                                                page.mouse.click(right_x, center_y)
+                                                plus_clicked = True
+                                            except Exception as edge_err:
+                                                logger.warning("Right-edge click failed: %s", str(edge_err)[:80])
+
+                                        if plus_clicked:
+                                            successfully_added += 1
+                                            logger.info("Click %d/%d succeeded", click_i + 1, qty_needed)
+                                        else:
+                                            logger.warning("Click %d/%d: Could not find increment button", click_i + 1, qty_needed)
+
+                                        time.sleep(1.5)
+
+                                except Exception as click_err:
+                                    logger.warning("Click %d/%d failed: %s", click_i + 1, qty_needed, str(click_err)[:100])
+
+                            # Log what actually happened
+                            if successfully_added < qty_needed:
+                                logger.warning("Only added %d/%d units to cart", successfully_added, qty_needed)
+                                self.send_localized({
+                                    "sender": "bot",
+                                    "action": "info",
+                                    "text": f"⚠️ Added {successfully_added} of {qty_needed} to cart. You may need to adjust the quantity manually.",
+                                    "timestamp": datetime.now().strftime("%I:%M %p")
+                                })
+
                             time.sleep(3)
                         
-                            action_history.append(f"Step {step}: User selected and added '{selected_item.get('name')}'")
+                            action_history.append(
+                                f"Step {step}: User selected '{selected_item.get('name')}' "
+                                f"(weight: {item_weight_display}), added {successfully_added}/{qty_needed} unit(s) to cart"
+                            )
                             goal = "Item added. Go to the cart, click Proceed/Checkout, and complete Login using 'input_phone' and 'input_otp'."
 
                         elif action == "input_phone":
@@ -853,7 +1080,23 @@ class AgentSession:
 
                         elif action == "click":
                             target_id = decision.get("id")
-                            page.locator(f'[custom-agent-id="{target_id}"]').first.click(timeout=5000)
+                            try:
+                                btn = page.locator(f'[custom-agent-id="{target_id}"]').first
+                                btn.click(timeout=5000)
+                            except Exception as e:
+                                logger.warning("Standard click failed for ID %s, falling back to JS click: %s", target_id, str(e)[:80])
+                                try:
+                                    btn = page.locator(f'[custom-agent-id="{target_id}"]').first
+                                    btn.evaluate('node => node.click()')
+                                except Exception as e2:
+                                    logger.warning("JS click also failed, falling back to coordinate click: %s", str(e2)[:80])
+                                    element_data = next((e for e in elements if str(e.get("id")) == str(target_id)), None)
+                                    if element_data and "rect" in element_data:
+                                        rect = element_data["rect"]
+                                        cx = rect["x"] + rect["w"] / 2
+                                        cy = rect["y"] + rect["h"] / 2
+                                        page.mouse.click(cx, cy)
+                                
                             time.sleep(4)
                             action_history.append(f"Step {step}: clicked ID {target_id}")
 
@@ -861,8 +1104,34 @@ class AgentSession:
                             target_id = decision.get("id")
                             text_to_type = decision.get("text", "")
                             input_field = page.locator(f'[custom-agent-id="{target_id}"]').first
-                            input_field.click() 
-                            input_field.press_sequentially(text_to_type, delay=150)
+                            
+                            # Click and wait for any focus animations to settle
+                            try:
+                                input_field.click(timeout=5000, force=True) 
+                            except Exception as click_err:
+                                logger.warning("Playwright locator click failed (possibly detached). Falling back to coordinate click: %s", str(click_err)[:80])
+                                # Fallback to coordinate click using the saved rect
+                                element_data = next((e for e in elements if str(e.get("id")) == str(target_id)), None)
+                                if element_data and "rect" in element_data:
+                                    rect = element_data["rect"]
+                                    cx = rect["x"] + rect["w"] / 2
+                                    cy = rect["y"] + rect["h"] / 2
+                                    page.mouse.click(cx, cy)
+                                    
+                            time.sleep(0.5)
+                            
+                            # Clear existing text just in case (Ctrl+A / Cmd+A, Backspace)
+                            page.keyboard.press("Control+a")
+                            page.keyboard.press("Backspace")
+                            time.sleep(0.2)
+                            
+                            # Type into whatever element currently has focus!
+                            # We use page.keyboard.type instead of input_field.press_sequentially
+                            # because if the LLM selected a wrapper <div> or icon instead of the actual
+                            # <input>, press_sequentially will timeout waiting for the div to become typeable.
+                            page.keyboard.type(text_to_type, delay=150)
+                            
+                            time.sleep(0.5)
                             page.keyboard.press("Enter")
                             time.sleep(4)
                             action_history.append(f"Step {step}: typed '{text_to_type}' into ID {target_id}")
@@ -871,6 +1140,17 @@ class AgentSession:
                             page.reload(timeout=30000)
                             time.sleep(5)
                             action_history.append(f"Step {step}: reloaded the page")
+
+                        elif action == "abort":
+                            self.send_localized({
+                                "sender": "bot",
+                                "action": "error",
+                                "text": decision.get("summary", "An error occurred."),
+                                "timestamp": datetime.now().strftime("%I:%M %p")
+                            })
+                            if self.phase is not None:
+                                self.phase = SessionPhase.AGENT_UNAVAILABLE
+                            break
 
                     except Exception as e:
                         error_msg = str(e)

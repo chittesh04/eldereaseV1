@@ -32,8 +32,6 @@ export const translations = {
     starterPrompts: [
       { label: "🛒 Blinkit", text: "Shop on Blinkit" },
       { label: "🛒 Zepto", text: "Shop on Zepto" },
-      { label: "🛒 Amazon", text: "Shop on Amazon" },
-      { label: "🛒 Instamart", text: "Shop on Instamart" },
     ],
 
     // Chat Message Actions & Badges
@@ -133,8 +131,6 @@ export const translations = {
     starterPrompts: [
       { label: "🛒 Blinkit", text: "Blinkit இல் ஷாப்பிங் செய்" },
       { label: "🛒 Zepto", text: "Zepto இல் ஷாப்பிங் செய்" },
-      { label: "🛒 Amazon", text: "Amazon இல் ஷாப்பிங் செய்" },
-      { label: "🛒 Instamart", text: "Instamart இல் ஷாப்பிங் செய்" },
     ],
 
     // Chat Message Actions & Badges
