@@ -40,7 +40,7 @@ export function ProductSelectionCard({
                   ? 'bg-zinc-900 border-yellow-400 text-yellow-300 hover:bg-yellow-400 hover:text-black'
                   : 'bg-slate-50 border-slate-300 text-slate-900 hover:bg-blue-50 hover:border-blue-500'
               }`}
-              aria-label={`Select item ${itemNumber}: ${product.name}, price ${product.price}${weight ? `, weight ${weight}` : ''}${qtyNeeded > 1 ? `, ${qtyNeeded} units needed` : ''}`}
+              aria-label={`Select item ${itemNumber}: ${product.name_localized || product.name}, price ${product.price}${weight ? `, weight ${weight}` : ''}${qtyNeeded > 1 ? `, ${qtyNeeded} units needed` : ''}`}
             >
               <div className="flex items-center gap-3.5 min-w-0">
                 {/* Number Badge */}
@@ -57,7 +57,7 @@ export function ProductSelectionCard({
                 {/* Product Name, Weight & Price */}
                 <div className="truncate">
                   <div className="font-extrabold text-base md:text-lg leading-tight truncate">
-                    {product.name}
+                    {product.name_localized || product.name}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-2 mt-0.5">
                     <span className="text-sm font-black text-emerald-700 dark:text-yellow-400">
