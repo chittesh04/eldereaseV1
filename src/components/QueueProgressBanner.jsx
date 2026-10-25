@@ -1,6 +1,7 @@
 import React from 'react';
 import { ShoppingCart, CheckCircle, Loader } from 'lucide-react';
 import { translations } from '../constants/translations';
+import { getLocalizedItemName } from './AddMoreOrCheckoutModal';
 
 /**
  * QueueProgressBanner — Displays "Shopping Item 2 of 3: bread" progress bar
@@ -10,6 +11,7 @@ export function QueueProgressBanner({
   lang = 'en',
   queueProgress,
   cartSummary = [],
+  messages = [],
   isHighContrast,
 }) {
   const t = translations[lang] || translations.en;
@@ -53,7 +55,7 @@ export function QueueProgressBanner({
           </p>
           <p className="text-base font-black truncate flex items-center gap-2">
             <Loader className="w-4 h-4 animate-spin" />
-            {currentItem}
+            {lang === 'ta' ? getLocalizedItemName({ name: currentItem }, 'ta', messages) : currentItem}
           </p>
         </div>
         {/* Mini cart count badge */}
@@ -72,18 +74,21 @@ export function QueueProgressBanner({
       {/* Mini Cart Summary (collapsed) */}
       {cartSummary.length > 0 && (
         <div className={`px-4 pb-3 flex flex-wrap gap-1.5`}>
-          {cartSummary.map((item, idx) => (
-            <span
-              key={idx}
-              className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
-                isHighContrast
-                  ? 'bg-zinc-800 text-yellow-200 border border-yellow-400/30'
-                  : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-              }`}
-            >
-              ✅ {item.name}{item.qty > 1 ? ` ×${item.qty}` : ''}
-            </span>
-          ))}
+          {cartSummary.map((item, idx) => {
+            const displayName = lang === 'ta' ? getLocalizedItemName(item, 'ta', messages) : item.name;
+            return (
+              <span
+                key={idx}
+                className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
+                  isHighContrast
+                    ? 'bg-zinc-800 text-yellow-200 border border-yellow-400/30'
+                    : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                }`}
+              >
+                ✅ {displayName}{item.qty > 1 ? ` ×${item.qty}` : ''}
+              </span>
+            );
+          })}
         </div>
       )}
     </div>

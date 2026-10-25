@@ -15,6 +15,7 @@ import { PurchaseConfirmationModal } from './components/PurchaseConfirmationModa
 import { QueueProgressBanner } from './components/QueueProgressBanner';
 import { AddMoreOrCheckoutModal } from './components/AddMoreOrCheckoutModal';
 import { speakGlobal, stopAllSpeech, buildBotMessageSpeechText, unlockAudio } from './components/SpeakButton';
+import { findLocalizedNameFromMessages } from './utils/translator';
 
 export function App() {
   // Language State ('en' | 'ta')
@@ -35,6 +36,11 @@ export function App() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
+
+  const messagesRef = useRef(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const [inputText, setInputText] = useState('');
 
@@ -163,21 +169,33 @@ export function App() {
       case 'step_progress':
         orderDispatch({ type: 'STEP_PROGRESS' });
         break;
-      case 'queue_progress':
+      case 'queue_progress': {
+        const enrichedCart = (data.cart_summary || []).map((c) => {
+          if (c.name_localized && /[\u0B80-\u0BFF]/.test(c.name_localized)) return c;
+          const matched = findLocalizedNameFromMessages(c.name, messagesRef.current);
+          return matched ? { ...c, name_localized: matched } : c;
+        });
         orderDispatch({
           type: 'QUEUE_PROGRESS',
           currentIndex: data.current_index,
           totalItems: data.total_items,
           currentItem: data.current_item,
-          cartSummary: data.cart_summary,
+          cartSummary: enrichedCart,
         });
         break;
-      case 'ask_more_or_checkout':
+      }
+      case 'ask_more_or_checkout': {
+        const enrichedCart = (data.cart_summary || []).map((c) => {
+          if (c.name_localized && /[\u0B80-\u0BFF]/.test(c.name_localized)) return c;
+          const matched = findLocalizedNameFromMessages(c.name, messagesRef.current);
+          return matched ? { ...c, name_localized: matched } : c;
+        });
         orderDispatch({
           type: 'ASK_MORE_OR_CHECKOUT',
-          cartSummary: data.cart_summary,
+          cartSummary: enrichedCart,
         });
         break;
+      }
       default:
         // Regular bot responses return to idle
         if (data.action !== 'searching' && data.action !== 'command_ready') {
@@ -458,6 +476,7 @@ export function App() {
           lang={lang}
           queueProgress={queueProgress}
           cartSummary={cartSummary}
+          messages={messages}
           isHighContrast={isHighContrast}
         />
       )}
@@ -529,6 +548,7 @@ export function App() {
         lang={lang}
         isOpen={isAddMoreOrCheckoutOpen}
         cartSummary={cartSummary}
+        messages={messages}
         onCheckout={() => {
           sendWsMessage({ sender: 'user', text: 'CHECKOUT', lang, timestamp: new Date().toISOString() });
           orderDispatch({ type: 'CLOSE_ADD_MORE_MODAL' });

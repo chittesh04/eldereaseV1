@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import json
 import logging
 import math
@@ -962,8 +962,13 @@ class AgentSession:
                     time.sleep(2)
 
                     # Return cart summary for this item
+                    en_name = selected_item.get("name", query)
+                    ta_name = selected_item.get("name_localized")
+                    if not ta_name and self.lang == "ta":
+                        ta_name = localize_message(en_name, "ta", llm_client=local_client, model_name=MODEL_NAME)
                     return {
-                        "name": selected_item.get("name", query),
+                        "name": en_name,
+                        "name_localized": ta_name or en_name,
                         "price": selected_item.get("price", "N/A"),
                         "qty": successfully_added or 1,
                         "weight": selected_item.get("weight", ""),
@@ -1350,8 +1355,13 @@ class AgentSession:
                     if self.phase is not None:
                         self.phase = SessionPhase.ASK_MORE_OR_CHECKOUT
 
+                    if self.lang == "ta":
+                        for c in self.cart_summary:
+                            if not c.get("name_localized"):
+                                c["name_localized"] = localize_message(c["name"], "ta", llm_client=local_client, model_name=MODEL_NAME)
+
                     cart_text_en = "\n".join(
-                        f"  - {c['name']} - {c.get('price', 'N/A')}" + (f" x{c['qty']}" if c.get('qty', 1) > 1 else "")
+                        f"  - {c.get('name_localized') or c['name']} - {c.get('price', 'N/A')}" + (f" x{c['qty']}" if c.get('qty', 1) > 1 else "")
                         for c in self.cart_summary
                     )
 
