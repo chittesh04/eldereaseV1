@@ -73,6 +73,18 @@ MESSAGES = {
         "⚠️ **அதிகபட்ச படிகள் எட்டப்பட்டது.** 25 படிகளுக்குள் ஆர்டரை முடிக்க முடியவில்லை. ஆர்டர் செய்யப்படவில்லை.",
     "Playwright is not available to run the agent.":
         "ஏஜென்ட் இயக்க Playwright கிடைக்கவில்லை.",
+
+    # --- Multi-Item Shopping Flow ---
+    "🧠 Analyzing your shopping list...":
+        "🧠 உங்கள் ஷாப்பிங் பட்டியலை ஆய்வு செய்கிறது...",
+    "I have added your items to the cart. Would you like to add anything else, or proceed to checkout?":
+        "பொருட்கள் கூடையில் சேர்க்கப்பட்டன. மேலும் பொருட்கள் சேர்க்க வேண்டுமா அல்லது ஆர்டர் செய்யலாமா?",
+    "✅ Got it! Adding more items to your cart...":
+        "✅ புரிந்தது! மேலும் பொருட்களை கூடையில் சேர்க்கிறோம்...",
+    "✅ Proceeding to checkout...":
+        "✅ ஆர்டர் செய்யப் போகிறோம்...",
+    "Item added to cart successfully.":
+        "பொருள் வெற்றிகரமாக கூடையில் சேர்க்கப்பட்டது.",
 }
 
 # ==========================================

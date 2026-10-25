@@ -84,6 +84,18 @@ export const translations = {
     cancelButton: "Cancel",
     orderCancelled: "Order cancelled.",
 
+    // Multi-Item Cart
+    shoppingItem: "Shopping Item",
+    ofTotal: "of",
+    cartSummaryTitle: "Your Cart",
+    addMoreItems: "🛒 Add More Items",
+    proceedCheckout: "✅ Proceed to Checkout",
+    addMoreOrCheckoutTitle: "What would you like to do?",
+    addMoreOrCheckoutSubtitle: "Your items are in the cart. Add more or checkout?",
+    addMoreInputPlaceholder: "Type items to add (e.g., eggs, butter)...",
+    itemAddedToCart: "Item added to cart!",
+    queueProgressLabel: "Queue Progress",
+
     // Connection Banner
     disconnectedTitle: "⚠️ Disconnected from Backend Server",
     connectingTitle: "Connecting to Assistant Server...",
@@ -182,6 +194,18 @@ export const translations = {
     confirmButton: "ஆர்டர் செய்",
     cancelButton: "ரத்து செய்",
     orderCancelled: "ஆர்டர் ரத்து செய்யப்பட்டது.",
+
+    // Multi-Item Cart
+    shoppingItem: "பொருள் ஷாப்பிங்",
+    ofTotal: "இல்",
+    cartSummaryTitle: "உங்கள் கூடை",
+    addMoreItems: "🛒 மேலும் பொருட்கள் சேர்",
+    proceedCheckout: "✅ ஆர்டர் செய்",
+    addMoreOrCheckoutTitle: "என்ன செய்ய விரும்புகிறீர்கள்?",
+    addMoreOrCheckoutSubtitle: "பொருட்கள் கூடையில் உள்ளன. மேலும் சேர்க்கலாமா அல்லது ஆர்டர் செய்யலாமா?",
+    addMoreInputPlaceholder: "சேர்க்க வேண்டிய பொருட்களை தட்டச்சு செய்யவும்...",
+    itemAddedToCart: "பொருள் கூடையில் சேர்க்கப்பட்டது!",
+    queueProgressLabel: "கூடை முன்னேற்றம்",
 
     // Connection Banner
     disconnectedTitle: "⚠️ சர்வர் இணைப்பு துண்டிக்கப்பட்டது",

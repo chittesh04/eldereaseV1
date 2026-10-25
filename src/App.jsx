@@ -12,6 +12,8 @@ import { useSpeechSynthesis } from './hooks/useSpeechSynthesis';
 import { translations } from './constants/translations';
 import { useOrderState } from './hooks/useOrderState';
 import { PurchaseConfirmationModal } from './components/PurchaseConfirmationModal';
+import { QueueProgressBanner } from './components/QueueProgressBanner';
+import { AddMoreOrCheckoutModal } from './components/AddMoreOrCheckoutModal';
 
 export function App() {
   // Language State ('en' | 'ta')
@@ -43,10 +45,14 @@ export function App() {
     isWaitingForPhone,
     isWaitingForConfirmation,
     isOtpModalOpen,
+    isAddMoreOrCheckoutOpen,
+    isQueueShopping,
     defaultPhone,
     otpPrompt,
     otpLength,
     confirmationData,
+    cartSummary,
+    queueProgress,
     dispatch: orderDispatch,
   } = useOrderState(t.otpDefaultPrompt);
   const [fontScale, setFontScale] = useState(() => {
@@ -159,6 +165,21 @@ export function App() {
         break;
       case 'step_progress':
         orderDispatch({ type: 'STEP_PROGRESS' });
+        break;
+      case 'queue_progress':
+        orderDispatch({
+          type: 'QUEUE_PROGRESS',
+          currentIndex: data.current_index,
+          totalItems: data.total_items,
+          currentItem: data.current_item,
+          cartSummary: data.cart_summary,
+        });
+        break;
+      case 'ask_more_or_checkout':
+        orderDispatch({
+          type: 'ASK_MORE_OR_CHECKOUT',
+          cartSummary: data.cart_summary,
+        });
         break;
       default:
         // Regular bot responses return to idle
@@ -341,6 +362,16 @@ export function App() {
         isHighContrast={isHighContrast}
       />
 
+      {/* Queue Progress Banner (multi-item shopping) */}
+      {isQueueShopping && queueProgress && (
+        <QueueProgressBanner
+          lang={lang}
+          queueProgress={queueProgress}
+          cartSummary={cartSummary}
+          isHighContrast={isHighContrast}
+        />
+      )}
+
       {/* Main Accessible Chat Message Area */}
       <ChatContainer
         lang={lang}
@@ -397,6 +428,24 @@ export function App() {
           orderDispatch({ type: 'ORDER_CANCELLED' });
         }}
         summary={confirmationData?.summary || ''}
+        isHighContrast={isHighContrast}
+      />
+
+      {/* Add More or Checkout Modal (multi-item decision boundary) */}
+      <AddMoreOrCheckoutModal
+        lang={lang}
+        isOpen={isAddMoreOrCheckoutOpen}
+        cartSummary={cartSummary}
+        onCheckout={() => {
+          sendWsMessage({ sender: 'user', text: 'CHECKOUT', lang, timestamp: new Date().toISOString() });
+          orderDispatch({ type: 'CLOSE_ADD_MORE_MODAL' });
+          orderDispatch({ type: 'USER_SENT_MESSAGE' });
+        }}
+        onAddMore={(itemsText) => {
+          sendWsMessage({ sender: 'user', text: itemsText, lang, timestamp: new Date().toISOString() });
+          orderDispatch({ type: 'CLOSE_ADD_MORE_MODAL' });
+          orderDispatch({ type: 'USER_SENT_MESSAGE' });
+        }}
         isHighContrast={isHighContrast}
       />
 

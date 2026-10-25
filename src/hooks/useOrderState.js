@@ -18,6 +18,8 @@ export const ORDER_PHASES = {
   AWAITING_ADDRESS: 'awaiting_address',
   AWAITING_CONFIRMATION: 'awaiting_confirmation',
   ADDING_TO_CART: 'adding_to_cart',
+  QUEUE_SHOPPING: 'queue_shopping',
+  ASK_MORE_OR_CHECKOUT: 'ask_more_or_checkout',
   CHECKOUT: 'checkout',
   SUCCESS: 'success',
   FAILED: 'failed',
@@ -31,6 +33,10 @@ const initialState = {
   isOtpModalOpen: false,
   otpLength: 6,
   confirmationData: null,
+  // Multi-item cart state
+  cartSummary: [],
+  queueProgress: null, // { currentIndex, totalItems, currentItem }
+  isAddMoreOrCheckoutOpen: false,
 };
 
 function orderReducer(state, event) {
@@ -119,6 +125,39 @@ function orderReducer(state, event) {
       // would prematurely clear isWaitingForOTP
       return state;
 
+    // ---- Multi-Item Cart Events ----
+    case 'QUEUE_PROGRESS':
+      return {
+        ...state,
+        phase: ORDER_PHASES.QUEUE_SHOPPING,
+        queueProgress: {
+          currentIndex: event.currentIndex,
+          totalItems: event.totalItems,
+          currentItem: event.currentItem,
+        },
+        cartSummary: event.cartSummary || state.cartSummary,
+      };
+
+    case 'ASK_MORE_OR_CHECKOUT':
+      return {
+        ...state,
+        phase: ORDER_PHASES.ASK_MORE_OR_CHECKOUT,
+        isAddMoreOrCheckoutOpen: true,
+        cartSummary: event.cartSummary || state.cartSummary,
+      };
+
+    case 'CLOSE_ADD_MORE_MODAL':
+      return {
+        ...state,
+        isAddMoreOrCheckoutOpen: false,
+      };
+
+    case 'CART_UPDATED':
+      return {
+        ...state,
+        cartSummary: event.cartSummary || state.cartSummary,
+      };
+
     default:
       return state;
   }
@@ -136,6 +175,9 @@ export function useOrderState(defaultOtpPrompt = '') {
   const isWaitingForPhone = state.phase === ORDER_PHASES.AWAITING_PHONE;
   const isWaitingForConfirmation = state.phase === ORDER_PHASES.AWAITING_CONFIRMATION;
 
+  const isAddMoreOrCheckoutOpen = state.isAddMoreOrCheckoutOpen;
+  const isQueueShopping = state.phase === ORDER_PHASES.QUEUE_SHOPPING;
+
   return {
     // State
     phase: state.phase,
@@ -144,12 +186,16 @@ export function useOrderState(defaultOtpPrompt = '') {
     otpLength: state.otpLength,
     isOtpModalOpen: state.isOtpModalOpen,
     confirmationData: state.confirmationData,
+    cartSummary: state.cartSummary,
+    queueProgress: state.queueProgress,
+    isAddMoreOrCheckoutOpen,
     
     // Derived booleans
     isBotThinking,
     isWaitingForOTP,
     isWaitingForPhone,
     isWaitingForConfirmation,
+    isQueueShopping,
     
     // Dispatch
     dispatch,

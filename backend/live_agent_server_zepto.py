@@ -8,6 +8,7 @@ import base64
 import threading
 import queue
 import time
+import urllib.parse
 from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()
@@ -43,7 +44,7 @@ except ImportError:
     GEMINI_AVAILABLE = False
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("ElderEase-LiveAgent")
+logger = logging.getLogger("ElderEase-LiveAgent-Zepto")
 
 # Pydantic models for protocol validation
 try:
@@ -64,11 +65,11 @@ except ImportError:
 from i18n import localize_message, to_english
 
 # ==========================================
-# CONFIGURATIONS (from your actual script)
+# CONFIGURATIONS
 # ==========================================
 
-#LM_STUDIO_URL = os.getenv("LM_STUDIO_URL", "http://100.116.69.78:1234/v1")
-LM_STUDIO_URL = os.getenv("LM_STUDIO_URL", "http://100.126.219.8:1234/v1")
+LM_STUDIO_URL = os.getenv("LM_STUDIO_URL", "http://100.116.69.78:1234/v1")
+# LM_STUDIO_URL = os.getenv("LM_STUDIO_URL", "http://100.126.219.8:1234/v1")
 
 MODEL_NAME = os.getenv("LM_STUDIO_MODEL", "qwen/qwen3-vl-8b")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -96,7 +97,7 @@ if GEMINI_AVAILABLE and GEMINI_API_KEY:
 # ==========================================
 
 app = FastAPI(
-    title="ElderEase Multimodal Agent WebSocket Server",
+    title="ElderEase Multimodal Agent WebSocket Server (Zepto + Blinkit)",
     description="Real-time web execution bridge connecting ElderEase UI with Playwright and LM Studio / Gemini",
     version="2.0.0"
 )
@@ -115,8 +116,8 @@ app.add_middleware(
 def root():
     return {
         "status": "online",
-        "service": "ElderEase Multimodal Visual Agent",
-        "ws_endpoint": "ws://localhost:8000/ws",
+        "service": "ElderEase Multimodal Visual Agent (Zepto Multi-Item Edition)",
+        "ws_endpoint": "ws://localhost:8001/ws",
         "playwright_installed": PLAYWRIGHT_AVAILABLE,
         "lm_studio_configured": local_client is not None,
         "gemini_configured": gemini_client is not None,
@@ -124,7 +125,7 @@ def root():
     }
 
 # ==========================================
-# HELPER FUNCTIONS (from your actual script)
+# HELPER FUNCTIONS
 # ==========================================
 
 def parse_weight_to_grams(weight_str: str) -> Optional[float]:
@@ -135,13 +136,11 @@ def parse_weight_to_grams(weight_str: str) -> Optional[float]:
     if not weight_str:
         return None
     weight_str = weight_str.strip().lower()
-    # Match patterns like '250g', '1.5 kg', '500 ml', '1 l', '2 pcs', '6 pack'
     m = re.match(r'^([\d.]+)\s*(kg|g|gm|gram|grams|l|litre|liter|litres|liters|ml|pcs|pc|piece|pieces|pack|unit|units|dozen|dz)s?$', weight_str)
     if not m:
         return None
     value = float(m.group(1))
     unit = m.group(2)
-    # Normalize to base units
     unit_multipliers = {
         'kg': 1000, 'g': 1, 'gm': 1, 'gram': 1, 'grams': 1,
         'l': 1000, 'litre': 1000, 'liter': 1000, 'litres': 1000, 'liters': 1000,
@@ -163,7 +162,6 @@ def extract_requested_quantity(command: str) -> Optional[float]:
     if not command:
         return None
     command_lower = command.lower()
-    # Match patterns like '1 kg', '500 g', '2 litres', '250 ml', '3 pcs'
     m = re.search(r'(\d+\.?\d*)\s*(kg|g|gm|gram|grams|l|litre|liter|litres|liters|ml|pcs|pc|piece|pieces|pack|packs|unit|units|dozen|dz)', command_lower)
     if not m:
         return None
@@ -188,6 +186,105 @@ def get_clean_text(raw_text: str, prefix: str) -> str:
     if prefix in clean_text:
         return prefix + clean_text.split(prefix)[-1]
     return clean_text
+
+
+# Multi-item extraction system prompt
+MULTI_ITEM_EXTRACTION_PROMPT = """You are a grocery order parser. Given the user's request and their clarification answer, extract every distinct grocery item they want to order.
+
+Output ONLY valid JSON in this exact format (no markdown, no explanation):
+{"items": [{"query": "clean item name in English", "qty": 1, "requested_weight": "1 kg"}, ...]}
+
+Rules:
+- "query" MUST be ONLY the clean English product/brand name WITHOUT weights like "1kg" or "500g" (e.g. use "onion" instead of "onions 1kg", "potato" instead of "potatoes 1kg", "aavin milk" instead of "aavin milk 500ml"). Grocery search bars fail when weights are typed into the search query!
+- "requested_weight" is the weight/volume if the user specified one (e.g. "1 kg", "500 g", "1 L"), or "" if not specified.
+- "qty" is the number of units/packets to add to cart (default 1).
+- Translate any Tamil item names to English for the query field.
+- Strip website names like "from zepto" or "on zepto".
+
+Examples:
+User: "I want milk and bread from zepto" -> {"items": [{"query": "milk", "qty": 1, "requested_weight": ""}, {"query": "bread", "qty": 1, "requested_weight": ""}]}
+User: "Order 2 packets of curd and 1 kg onions" -> {"items": [{"query": "curd", "qty": 2, "requested_weight": ""}, {"query": "onion", "qty": 1, "requested_weight": "1 kg"}]}
+User: "1 kg onion and 1 kg potato" -> {"items": [{"query": "onion", "qty": 1, "requested_weight": "1 kg"}, {"query": "potato", "qty": 1, "requested_weight": "1 kg"}]}
+User: "பால் வேண்டும்" -> {"items": [{"query": "milk", "qty": 1, "requested_weight": ""}]}
+"""
+
+
+def extract_items_from_text(user_request: str, user_answer: str) -> list:
+    """Extract a structured list of items from user's request + clarification.
+    Returns: [{"query": "onion", "qty": 1, "requested_weight": "1 kg"}, ...]
+    Falls back to a single-item list wrapping the entire command.
+    """
+    combined_input = f"User request: {user_request}\nUser clarification: {user_answer}"
+
+    raw_json = None
+
+    # Try local LLM first
+    if local_client:
+        try:
+            response = local_client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": MULTI_ITEM_EXTRACTION_PROMPT},
+                    {"role": "user", "content": combined_input}
+                ],
+                temperature=0.1,
+            )
+            raw_output = response.choices[0].message.content.strip()
+            raw_output = re.sub(r'<think>.*?</think>', '', raw_output, flags=re.DOTALL).strip()
+            raw_output = raw_output.replace("```json", "").replace("```", "").strip()
+            raw_json = json.loads(raw_output)
+        except Exception as e:
+            logger.warning("Local LLM item extraction failed: %s", str(e)[:80])
+
+    # Fallback to Gemini
+    if raw_json is None and gemini_client:
+        try:
+            from google.genai import types as genai_types
+            res = gemini_client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[MULTI_ITEM_EXTRACTION_PROMPT, combined_input],
+                config=genai_types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.1
+                )
+            )
+            raw_json = json.loads(res.text)
+        except Exception as e:
+            logger.warning("Gemini item extraction failed: %s", str(e)[:80])
+
+    # Parse the JSON into a clean list
+    if raw_json:
+        items_list = raw_json.get("items", [])
+        if isinstance(items_list, list) and len(items_list) > 0:
+            cleaned = []
+            for item in items_list:
+                if isinstance(item, dict) and "query" in item:
+                    raw_q = str(item["query"]).strip()
+                    q = re.sub(r'\b(on|from|in)\s+(zepto|blinkit)\b', '', raw_q, flags=re.IGNORECASE).strip()
+                    cleaned.append({
+                        "query": q or raw_q,
+                        "qty": max(1, int(item.get("qty", 1))),
+                        "requested_weight": str(item.get("requested_weight", "")).strip() or raw_q,
+                    })
+                elif isinstance(item, str):
+                    cleaned.append({
+                        "query": item.strip(),
+                        "qty": 1,
+                        "requested_weight": item.strip()
+                    })
+            if cleaned:
+                logger.info("Extracted %d items from user request: %s", len(cleaned), cleaned)
+                return cleaned
+
+    # Final fallback: treat the entire user answer as a single search query
+    fallback_query = user_answer.strip() if user_answer.strip() else user_request.strip()
+    cmd_match = re.search(r'(?:order|buy|get)\s+(.+)', fallback_query, re.IGNORECASE)
+    if cmd_match:
+        fallback_query = cmd_match.group(1).strip()
+    fallback_query = re.sub(r'\b(on|from|in)\s+(zepto|blinkit)\b', '', fallback_query, flags=re.IGNORECASE).strip()
+    logger.info("Falling back to single item: %s", fallback_query)
+    return [{"query": fallback_query, "qty": 1, "requested_weight": fallback_query}]
+
 
 def get_interactive_elements(page):
     """Extract and tag interactable elements on the webpage for AI processing."""
@@ -295,6 +392,7 @@ def get_interactive_elements(page):
     """
     return page.evaluate(js_code)
 
+
 def ask_llm(goal, elements_list, action_history, screenshot_bytes, previous_error=None):
     """THE MULTIMODAL BRAIN: Tries Local LLM first, falls back to Gemini on failure."""
     recent_history = action_history[-6:] if len(action_history) > 6 else action_history
@@ -354,7 +452,7 @@ def ask_llm(goal, elements_list, action_history, screenshot_bytes, previous_erro
 
     if local_client:
         try:
-            logger.info("🤖 Asking Local LLM (LM Studio) for the next move...")
+            logger.info("Asking Local LLM (LM Studio) for the next move...")
             base64_image = base64.b64encode(screenshot_bytes).decode('utf-8')
             
             response = local_client.chat.completions.create(
@@ -383,15 +481,15 @@ def ask_llm(goal, elements_list, action_history, screenshot_bytes, previous_erro
                 try:
                     validated = AgentAction.model_validate(decision)
                     decision = validated.model_dump()
-                    logger.info("✅ Local LLM response validated successfully.")
+                    logger.info("Local LLM response validated successfully.")
                 except Exception as ve:
-                    logger.warning("⚠️ Local LLM response failed validation: %s", ve)
+                    logger.warning("Local LLM response failed validation: %s", ve)
             else:
-                logger.info("✅ Local LLM successfully generated a response (unvalidated).")
+                logger.info("Local LLM successfully generated a response (unvalidated).")
             return decision
             
         except Exception as e:
-            logger.warning("⚠️ Local LLM failed (%s). Falling back to Gemini...", str(e)[:80])
+            logger.warning("Local LLM failed (%s). Falling back to Gemini...", str(e)[:80])
 
     if gemini_client:
         try:
@@ -409,12 +507,12 @@ def ask_llm(goal, elements_list, action_history, screenshot_bytes, previous_erro
                 try:
                     validated = AgentAction.model_validate(decision)
                     decision = validated.model_dump()
-                    logger.info("✅ Gemini response validated successfully.")
+                    logger.info("Gemini response validated successfully.")
                 except Exception as ve:
-                    logger.warning("⚠️ Gemini response failed validation: %s", ve)
+                    logger.warning("Gemini response failed validation: %s", ve)
             return decision
         except Exception as ge:
-            logger.warning("⚠️ Gemini fallback failed: %s", ge)
+            logger.warning("Gemini fallback failed: %s", ge)
 
     # Safe stop: do not blindly act when both LLMs are unavailable
     logger.error("Both LLM providers unavailable. Returning safe-stop action.")
@@ -444,6 +542,9 @@ class AgentSession:
         self.clean_command = ""
         self.lang = "en"
         self.thread: Optional[threading.Thread] = None
+        # Multi-item shopping state
+        self.item_queue: List[dict] = []     # [{query, qty, requested_weight}, ...]
+        self.cart_summary: List[dict] = []   # [{name, price, qty, weight}, ...]
 
     def send_ws_threadsafe(self, data: dict):
         """Threadsafe helper to push a message into the WebSocket client."""
@@ -455,11 +556,7 @@ class AgentSession:
         )
 
     def send_localized(self, data: dict):
-        """Send a message to the UI with automatic translation.
-        The 'text' field is written in English by the developer.
-        If self.lang == 'ta', it is automatically translated to Tamil
-        using the static dictionary first, then LLM fallback.
-        """
+        """Send a message to the UI with automatic translation."""
         if "text" in data and self.lang == "ta":
             data["text"] = localize_message(
                 data["text"], self.lang,
@@ -469,20 +566,14 @@ class AgentSession:
         self.send_ws_threadsafe(data)
 
     def translate_input(self, user_text: str) -> str:
-        """Translate user input to English if the session is in Tamil mode.
-        This ensures all internal processing (commands, web agent) works in English.
-        """
+        """Translate user input to English if the session is in Tamil mode."""
         return to_english(
             user_text, self.lang,
             llm_client=local_client, model_name=MODEL_NAME
         )
 
     def wait_for_user_input(self, action: str, text: str, extra: Optional[dict] = None) -> str:
-        """Sends an action message to the web UI and blocks the worker thread until user responds.
-        The 'text' prompt is written in English and auto-translated if lang == 'ta'.
-        The user's reply is auto-translated back to English for internal processing.
-        """
-        # Auto-translate prompt to user's language
+        """Sends an action message to the web UI and blocks the worker thread until user responds."""
         localized_text = localize_message(
             text, self.lang, llm_client=local_client, model_name=MODEL_NAME
         )
@@ -496,7 +587,6 @@ class AgentSession:
         if extra:
             msg.update(extra)
         
-        # Track what we're waiting for
         if self.waiting_for is not None:
             waiting_map = {
                 "ask_clarification": WaitingFor.CLARIFICATION,
@@ -506,39 +596,33 @@ class AgentSession:
                 "ask_user": WaitingFor.GENERIC,
                 "ask_address": WaitingFor.ADDRESS,
                 "confirm_purchase": WaitingFor.PURCHASE_CONFIRMATION,
+                "ask_more_or_checkout": WaitingFor.ADD_MORE_OR_CHECKOUT,
             }
             self.waiting_for = waiting_map.get(action, WaitingFor.GENERIC)
         
         self.send_ws_threadsafe(msg)
         logger.info("Agent waiting for user input on action: %s", action)
         
-        # Block worker thread waiting for user WebSocket message
         result = self.user_input_queue.get()
         if self.waiting_for is not None:
             self.waiting_for = WaitingFor.NOTHING
         
-        # Translate user reply to English for internal processing
-        # Skip translation for numeric inputs (OTP, phone, product selection numbers)
         if action not in ("input_otp", "input_phone") and not result.strip().isdigit():
             result = self.translate_input(result)
         
         return result
 
     def run_stage_1_and_2(self, user_request: str, lang: str = "en"):
-        """STEP 1: User preferences clarification & STEP 2: Command drafting.
-        All internal processing is in English. Translation happens at the edges.
-        """
+        """STEP 1: User preferences clarification & STEP 2: Multi-item extraction."""
         self.initial_request = user_request
         self.lang = lang
 
-        # Translate Tamil user request to English for internal processing
         english_request = self.translate_input(user_request)
 
-        # Send thinking indicator (auto-translated)
         self.send_localized({
             "sender": "bot",
             "action": "thinking",
-            "text": " Agent is thinking about what to ask...",
+            "text": "Agent is thinking about what to ask...",
             "timestamp": datetime.now().strftime("%I:%M %p")
         })
 
@@ -571,90 +655,48 @@ class AgentSession:
             except Exception as e:
                 logger.warning("Gemini clarification failed: %s", e)
 
-        # Fallback question if offline
         if not clean_question:
             clean_question = f"Question: What flavor or brand of {english_request} do you want, and how many packets would you like?"
 
         self.clean_question = clean_question
 
-        # Send question to UI (auto-translated) and wait for user's answer (auto-translated back to English)
         user_answer = self.wait_for_user_input(
             action="ask_clarification",
             text=f"**{clean_question}**\n\n*(You can reply by speaking or typing)*"
         )
         self.user_answer = user_answer
 
-        # STEP 3: Draft Final Command (always in English)
+        # STEP 3: Extract items using multi-item parser
         self.send_localized({
             "sender": "bot",
             "action": "thinking",
-            "text": "📝 Drafting final command for the Web execution agent...",
+            "text": "Analyzing your shopping list...",
             "timestamp": datetime.now().strftime("%I:%M %p")
         })
 
-        system_prompt_2 = """You are a master AI dispatcher. Your job is to read the conversation history and draft a clear, direct, and actionable prompt for an autonomous ordering agent to execute the grocery order. Do not include pleasantries. 
-        final output format "Command: """
+        items = extract_items_from_text(english_request, user_answer)
+        self.item_queue = list(items)
+        self.cart_summary = []
 
-        clean_command = ""
-        if local_client:
-            try:
-                response_2 = local_client.chat.completions.create(
-                    model=MODEL_NAME, 
-                    messages=[
-                        {"role": "system", "content": system_prompt_2},
-                        {"role": "user", "content": english_request},
-                        {"role": "assistant", "content": clean_question},
-                        {"role": "user", "content": user_answer},
-                        {"role": "user", "content": "Based on my answers, draft the final prompt to send to the autonomous ordering agent to fulfill my order."}
-                    ],
-                    temperature=0.7,
-                )
-                raw_command = response_2.choices[0].message.content
-                clean_command = get_clean_text(raw_command, "Command:")
-            except Exception as e:
-                logger.warning("Local client command drafting failed: %s", e)
-
-        if not clean_command and gemini_client:
-            try:
-                res2 = gemini_client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=[system_prompt_2, f"User order: {english_request}\nUser clarification: {user_answer}"]
-                )
-                clean_command = get_clean_text(res2.text, "Command:")
-            except Exception as e:
-                logger.warning("Gemini command drafting failed: %s", e)
-
-        if not clean_command:
-            clean_command = f"Command: Order {user_answer} of {english_request}."
-
-        self.clean_command = clean_command
-
-        # Send command announcement to UI (auto-translated)
-        self.send_localized({
-            "sender": "bot",
-            "action": "command_ready",
-            "text": clean_command,
-            "timestamp": datetime.now().strftime("%I:%M %p")
-        })
+        logger.info("Item queue initialized with %d items: %s", len(self.item_queue), self.item_queue)
 
         # STEP 4: Launch Web Agent Execution
-        self.execute_web_agent(clean_command)
+        self.execute_web_agent(english_request)
 
-    def execute_web_agent(self, final_command: str):
+    def execute_web_agent(self, original_request: str):
         """Runs the multimodal agent (Playwright if available)."""
-        command_lower = final_command.lower()
-        if "zepto" in command_lower:
-            target_site = "https://www.zeptonow.com/"
-        else:
+        request_lower = original_request.lower()
+        if "blinkit" in request_lower:
             target_site = "https://blinkit.com/"
-            
+        else:
+            target_site = "https://www.zeptonow.com/"
+
         default_address = ""
         default_phone = ""
 
-        # Check if Playwright is available
         if PLAYWRIGHT_AVAILABLE:
             try:
-                self.run_playwright_loop(target_site, final_command, default_address, default_phone)
+                self.run_multi_item_playwright(target_site, default_address, default_phone)
                 return
             except Exception as pe:
                 logger.error("Playwright execution error: %s.", pe)
@@ -672,674 +714,804 @@ class AgentSession:
                 "timestamp": datetime.now().strftime("%I:%M %p")
             })
 
-    def run_playwright_loop(self, start_url: str, final_command: str, address: str, phone: str):
-        """Real Playwright Multimodal Visual Loop."""
-        goal = f"""
-        Target User Order: {final_command}
-        User mobile: {phone if phone else "Not provided. Use 'input_phone' and prompt the user if asked for login."}
-        Address: {address if address else "Not provided. Use 'ask_address' action if the website forces you to enter a delivery location."}
-        
-        Instructions:
-        1. Handle any location/delivery popup or select delivery address. If forced to enter an address and none is provided, use the 'ask_address' action.
-        2. In the search bar, search for the items mentioned in the 'Target User Order'.
-        3. When search results load, use the 'show_results' action to list the top 5 products.
-        4. After an item is added, navigate to the cart and click Proceed/Checkout.
-        5. If a login screen appears, use 'input_phone' for the mobile number and 'input_otp' for the OTP.
+    def search_and_add_single_item(
+        self, page, start_url: str, item: dict, is_first_item: bool = False
+    ) -> Optional[dict]:
+        """Search for a single item on Zepto (or Blinkit), present top-5 results to user,
+        let user pick one, and add it to cart.
         """
+        query = item["query"]
+        # Clean any trailing weight from query so Zepto search doesn't fail
+        clean_search_term = re.sub(
+            r'\b\d+\.?\d*\s*(kg|g|gm|ml|l|pcs|pack)s?\b', '', query, flags=re.IGNORECASE
+        ).strip() or query
+        qty = item.get("qty", 1)
+        requested_weight_str = item.get("requested_weight", "") or query
+        is_zepto = "zepto" in start_url.lower() or "zepto" in page.url.lower()
 
+        # Helper to close any blocking Radix/Zepto modal overlay (<div data-state="open">)
+        def _close_blocking_modal_if_present():
+            try:
+                overlay = page.locator('div[data-state="open"][aria-hidden="true"]').first
+                if overlay.count() > 0 and overlay.is_visible():
+                    logger.info("Closing blocking modal overlay before searching...")
+                    # Click the X button inside the dialog or press Escape
+                    close_btn = page.locator(
+                        'div[role="dialog"] button:has(svg), '
+                        'button[aria-label*="close" i], '
+                        '[data-testid*="close" i]'
+                    ).first
+                    if close_btn.count() > 0 and close_btn.is_visible():
+                        close_btn.click(timeout=2000, force=True)
+                    else:
+                        page.keyboard.press("Escape")
+                    time.sleep(1.5)
+            except Exception:
+                pass
 
+        # Helper to type the search query into Zepto's search bar deterministically
+        def _perform_zepto_search():
+            try:
+                _close_blocking_modal_if_present()
 
+                # If not on /search page, click Zepto's search bar link (<a href="/search" data-testid="search-bar-icon">)
+                if "/search" not in page.url:
+                    search_bar_link = page.locator(
+                        '[data-testid="search-bar-icon"], a[href="/search"], a[aria-label*="Search" i]'
+                    ).first
+                    if search_bar_link.count() > 0 and search_bar_link.is_visible():
+                        search_bar_link.click(timeout=3000)
+                        time.sleep(1.5)
+                    else:
+                        page.goto("https://www.zepto.com/search", timeout=30000)
+                        time.sleep(2.0)
+
+                # Now type into the active search input box
+                search_input = page.locator(
+                    'input[placeholder*="Search" i], input[type="search"], input[type="text"]'
+                ).first
+                if search_input.count() > 0 and search_input.is_visible():
+                    search_input.click(timeout=3000, force=True)
+                    time.sleep(0.3)
+                    page.keyboard.press("Control+a")
+                    page.keyboard.press("Backspace")
+                    time.sleep(0.2)
+                    page.keyboard.type(clean_search_term, delay=100)
+                    time.sleep(0.5)
+                    page.keyboard.press("Enter")
+                    time.sleep(3.5)
+                    logger.info("Automatically searched Zepto for: %s", clean_search_term)
+                    return True
+            except Exception as e:
+                logger.warning("Auto-search helper warning: %s", e)
+            return False
+
+        # Run deterministic search for ALL Zepto items (even Item 1!) so the VLM never accidentally clicks Login!
+        searched_automatically = False
+        if is_zepto:
+            searched_automatically = _perform_zepto_search()
+        elif not is_first_item:
+            try:
+                search_url = f"https://blinkit.com/s/?q={urllib.parse.quote(clean_search_term)}"
+                page.goto(search_url, timeout=30000)
+                time.sleep(3)
+                searched_automatically = True
+            except Exception as nav_err:
+                logger.warning("Blinkit URL navigation failed: %s", nav_err)
+
+        search_goal = (
+            f"Search for '{clean_search_term}' and show the top 5 product results using 'show_results'. "
+            "If search results are already visible on the screen, immediately return 'show_results'."
+        )
+
+        step = 1
+        last_error = None
+        action_history = []
+        otp_attempts = 0
+
+        while step <= 20 and self.is_active:
+            # Check if we are on Zepto's "OTP Verification" popup
+            try:
+                body_text = page.inner_text("body").lower()
+                if "otp verification" in body_text and "has been sent to" in body_text:
+                    if otp_attempts >= 2:
+                        # If OTP failed twice during search, close the modal and continue shopping!
+                        logger.warning("OTP verification failed twice during search; closing modal to continue shopping.")
+                        _close_blocking_modal_if_present()
+                        if is_zepto:
+                            _perform_zepto_search()
+                    else:
+                        otp_attempts += 1
+                        logger.info("Detected Zepto OTP Verification screen (attempt %d)! Prompting user for OTP...", otp_attempts)
+                        otp_len = 6 if is_zepto else 4
+                        otp_code = self.wait_for_user_input(
+                            action="ask_user",
+                            text="**OTP Verification Required:** An SMS code was sent to your phone. Enter the code using the Big Keypad:",
+                            extra={"type": "otp", "prompt": "Please enter the OTP sent to your phone:", "otpLength": otp_len}
+                        ).strip()
+
+                        # Clear any existing digits in the 6 OTP boxes first!
+                        page.evaluate("""() => {
+                            const inputs = document.querySelectorAll('div[role="dialog"] input, input[maxlength="1"], input[type="tel"], input[type="number"]');
+                            inputs.forEach(inp => { inp.value = ''; });
+                            if (inputs.length > 0) inputs[0].focus();
+                        }""")
+                        for _ in range(8):
+                            page.keyboard.press("Backspace")
+                        time.sleep(0.3)
+
+                        # Click the first OTP box and type the new 6-digit code
+                        otp_box = page.locator('div[role="dialog"] input, input[type="tel"], input[type="number"], input[maxlength="1"]').first
+                        if otp_box.count() > 0 and otp_box.is_visible():
+                            otp_box.click(timeout=2000, force=True)
+                        page.keyboard.type(otp_code, delay=150)
+                        time.sleep(4)
+                        action_history.append(f"Step {step}: Entered OTP {otp_code}")
+
+                        # If modal closed after OTP, run the search!
+                        body_after = page.inner_text("body").lower()
+                        if "otp verification" not in body_after and is_zepto:
+                            _perform_zepto_search()
+                        step += 1
+                        continue
+            except Exception as otp_check_err:
+                logger.warning("OTP screen pre-check warning: %s", otp_check_err)
+
+            elements = get_interactive_elements(page)
+            screenshot_bytes = page.screenshot(type="jpeg", quality=40)
+
+            decision = ask_llm(search_goal, elements, action_history, screenshot_bytes, last_error)
+            last_error = None
+
+            action = decision.get("action")
+            status_text = decision.get("status", f"Executing action: {action}...")
+
+            self.send_localized({
+                "sender": "bot",
+                "action": "step_progress",
+                "step": step,
+                "text": f"**{status_text}**",
+                "timestamp": datetime.now().strftime("%I:%M %p")
+            })
+
+            try:
+                if action == "show_results":
+                    results = decision.get("results", [])
+                    if not results:
+                        action_history.append(
+                            f"Step {step}: show_results was empty. Scroll or type '{clean_search_term}' into search."
+                        )
+                        step += 1
+                        continue
+
+                    top_results = results[:5]
+                    requested_qty = extract_requested_quantity(requested_weight_str)
+
+                    for product in top_results:
+                        item_weight = product.get("weight", "")
+                        qty_needed = calculate_quantity_needed(requested_qty, item_weight)
+                        product["qty_needed"] = qty_needed
+                        product["requested_qty_label"] = requested_weight_str
+
+                        if self.lang == "ta":
+                            product["name_localized"] = localize_message(
+                                product["name"], self.lang,
+                                llm_client=local_client, model_name=MODEL_NAME
+                            )
+
+                    user_choice_str = self.wait_for_user_input(
+                        action="show_results",
+                        text="**Top Search Results:** Which item would you like to add? Tap an item or tell me the number:",
+                        extra={"results": top_results}
+                    )
+
+                    choice_idx = 0
+                    digits = re.findall(r'\d+', user_choice_str)
+                    if digits:
+                        choice_idx = max(0, min(len(top_results) - 1, int(digits[0]) - 1))
+
+                    selected_item = top_results[choice_idx]
+                    product_name = selected_item.get("name", clean_search_term)
+                    target_id = selected_item.get("add_button_id")
+                    qty_needed = selected_item.get("qty_needed", 1)
+                    if qty > 1 and qty_needed == 1:
+                        qty_needed = qty
+
+                    item_weight_display = selected_item.get('weight', 'N/A')
+                    if qty_needed > 1:
+                        cart_msg = (
+                            f"**Selected:** {product_name} "
+                            f"({item_weight_display} x {qty_needed} = your requested quantity). "
+                            f"Adding {qty_needed} to cart..."
+                        )
+                    else:
+                        cart_msg = (
+                            f"**Selected:** {product_name} "
+                            f"(Price: {selected_item.get('price')}). Adding to cart..."
+                        )
+
+                    self.send_localized({
+                        "sender": "bot",
+                        "action": "cart_update",
+                        "text": cart_msg,
+                        "timestamp": datetime.now().strftime("%I:%M %p")
+                    })
+
+                    # Zepto / Blinkit Add Button Logic
+                    add_btn = None
+                    first_word = product_name.split()[0] if product_name else ""
+                    if is_zepto and first_word:
+                        card_locator = page.locator(
+                            f'a:has-text("{first_word}"), [data-testid*="product"]:has-text("{first_word}")'
+                        ).first
+                        if card_locator.count() > 0:
+                            inner_add = card_locator.locator(
+                                'button:has-text("ADD"), [data-testid*="add" i], button:has-text("+"), div[role="button"]:has-text("ADD")'
+                            ).first
+                            if inner_add.count() > 0 and inner_add.is_visible():
+                                add_btn = inner_add
+
+                    if not add_btn and target_id is not None:
+                        elem = page.locator(f'[custom-agent-id="{target_id}"]').first
+                        if elem.count() > 0:
+                            tag_name = elem.evaluate('el => el.tagName.toLowerCase()')
+                            if tag_name == 'a':
+                                inner_btn = elem.locator('button, [role="button"], [data-testid*="add" i]').first
+                                add_btn = inner_btn if inner_btn.count() > 0 else elem
+                            else:
+                                add_btn = elem
+
+                    if not add_btn or add_btn.count() == 0:
+                        add_btn = page.locator('button:has-text("ADD"), button:has-text("Add")').first
+
+                    successfully_added = 0
+                    add_btn_box = None
+                    try:
+                        if add_btn and add_btn.count() > 0:
+                            add_btn_box = add_btn.bounding_box()
+                    except Exception:
+                        pass
+
+                    for click_i in range(qty_needed):
+                        try:
+                            if click_i == 0:
+                                if add_btn and add_btn.count() > 0:
+                                    try:
+                                        add_btn.click(timeout=4000)
+                                    except Exception:
+                                        add_btn.evaluate('btn => btn.click()')
+                                    successfully_added += 1
+                                    time.sleep(2.0)
+
+                                    current_url = page.url
+                                    if "/pn/" in current_url or "/prn/" in current_url:
+                                        pdp_btn = page.locator(
+                                            'button:has-text("Add to Cart"), button:has-text("ADD"), [data-testid*="add" i]'
+                                        ).first
+                                        if pdp_btn.count() > 0 and pdp_btn.is_visible():
+                                            pdp_btn.click()
+                                            time.sleep(1.5)
+                                        page.go_back()
+                                        time.sleep(2.0)
+                            else:
+                                plus_clicked = False
+                                inc_selector = (
+                                    'button[aria-label*="increase" i], '
+                                    'button[aria-label*="increment" i], '
+                                    '[data-testid*="increase" i], '
+                                    '[data-testid*="increment" i], '
+                                    '[class*="plus" i]'
+                                )
+                                candidates = page.locator(inc_selector)
+                                if candidates.count() > 0 and candidates.first.is_visible():
+                                    candidates.first.click(timeout=3000, force=True)
+                                    plus_clicked = True
+                                elif add_btn_box:
+                                    right_x = add_btn_box['x'] + add_btn_box['width'] - 10
+                                    center_y = add_btn_box['y'] + add_btn_box['height'] / 2
+                                    page.mouse.click(right_x, center_y)
+                                    plus_clicked = True
+
+                                if plus_clicked:
+                                    successfully_added += 1
+                                time.sleep(1.5)
+                        except Exception as click_err:
+                            logger.warning("Click %d failed: %s", click_i + 1, click_err)
+
+                    time.sleep(2)
+                    return {
+                        "name": product_name,
+                        "price": selected_item.get("price", "N/A"),
+                        "qty": successfully_added or 1,
+                        "weight": selected_item.get("weight", ""),
+                    }
+
+                elif action == "input_phone":
+                    target_id = decision.get("id")
+                    user_phone = self.wait_for_user_input(
+                        action="input_phone",
+                        text="**Phone Number Required:** Please confirm your mobile number to proceed with login:",
+                        extra={"default_phone": ""}
+                    ).strip()
+
+                    try:
+                        phone_input = page.locator(
+                            f'[custom-agent-id="{target_id}"], input[type="tel"], input[placeholder*="phone" i], input[placeholder*="mobile" i], input[placeholder*="number" i]'
+                        ).first
+                        phone_input.click(timeout=3000)
+                        phone_input.fill("")
+                        phone_input.press_sequentially(user_phone, delay=120)
+                        time.sleep(0.5)
+                        page.keyboard.press("Enter")
+                    except Exception as e:
+                        logger.warning("Phone input locator fallback: %s", str(e)[:80])
+                        page.keyboard.type(user_phone, delay=120)
+                        page.keyboard.press("Enter")
+
+                    time.sleep(3.0)
+                    action_history.append(f"Step {step}: Entered phone number {user_phone}")
+
+                elif action == "input_otp":
+                    target_id = decision.get("id")
+                    otp_len = 6 if is_zepto else 4
+                    otp_code = self.wait_for_user_input(
+                        action="ask_user",
+                        text="**OTP Verification Required:** An SMS code was sent to your phone. Enter the code using the Big Keypad:",
+                        extra={"type": "otp", "prompt": "Please enter the OTP sent to your phone:", "otpLength": otp_len}
+                    ).strip()
+                    try:
+                        page.evaluate("""() => {
+                            const inputs = document.querySelectorAll('div[role="dialog"] input, input[maxlength="1"], input[type="tel"], input[type="number"]');
+                            inputs.forEach(inp => { inp.value = ''; });
+                            if (inputs.length > 0) inputs[0].focus();
+                        }""")
+                        for _ in range(8):
+                            page.keyboard.press("Backspace")
+                        time.sleep(0.3)
+                        if target_id is not None:
+                            input_field = page.locator(f'[custom-agent-id="{target_id}"]').first
+                            if input_field.count() > 0 and input_field.is_visible():
+                                input_field.click(timeout=2000, force=True)
+                        page.keyboard.type(otp_code, delay=150)
+                    except Exception:
+                        page.keyboard.type(otp_code, delay=150)
+                    time.sleep(4)
+                    action_history.append(f"Step {step}: User entered OTP")
+
+                elif action == "done":
+                    last_error = (
+                        f"You returned 'done', but we have not added '{clean_search_term}' to the cart yet. "
+                        "You MUST return 'show_results' with the top 5 products."
+                    )
+                    action_history.append(f"Step {step}: rejected premature 'done' during search phase")
+
+                elif action == "ask_user":
+                    question = decision.get("question", "I need some information to proceed:")
+                    user_response = self.wait_for_user_input(
+                        action="ask_user",
+                        text=f"**{question}**"
+                    ).strip()
+                    action_history.append(f"Step {step}: Asked user '{question}'. User answered: '{user_response}'")
+
+                elif action == "ask_address":
+                    user_response = self.wait_for_user_input(
+                        action="ask_address",
+                        text="**Delivery Address Required:** Please enter your full delivery address:"
+                    ).strip()
+                    action_history.append(f"Step {step}: Asked for address. Got: '{user_response}'")
+
+                elif action == "scroll":
+                    page.mouse.wheel(0, 600)
+                    time.sleep(2)
+                    action_history.append(f"Step {step}: scrolled")
+
+                elif action == "click":
+                    target_id = decision.get("id")
+                    try:
+                        btn = page.locator(f'[custom-agent-id="{target_id}"]').first
+                        btn.click(timeout=5000)
+                    except Exception:
+                        try:
+                            btn = page.locator(f'[custom-agent-id="{target_id}"]').first
+                            btn.evaluate('node => node.click()')
+                        except Exception:
+                            element_data = next((el for el in elements if str(el.get("id")) == str(target_id)), None)
+                            if element_data and "rect" in element_data:
+                                rect = element_data["rect"]
+                                page.mouse.click(rect["x"] + rect["w"] / 2, rect["y"] + rect["h"] / 2)
+                    time.sleep(3)
+                    action_history.append(f"Step {step}: clicked ID {target_id}")
+
+                elif action == "type":
+                    target_id = decision.get("id")
+                    text_to_type = clean_search_term if "search" in decision.get("text", "").lower() else decision.get("text", clean_search_term)
+                    input_field = page.locator(f'[custom-agent-id="{target_id}"]').first
+                    try:
+                        input_field.click(timeout=5000, force=True)
+                    except Exception:
+                        element_data = next((el for el in elements if str(el.get("id")) == str(target_id)), None)
+                        if element_data and "rect" in element_data:
+                            rect = element_data["rect"]
+                            page.mouse.click(rect["x"] + rect["w"] / 2, rect["y"] + rect["h"] / 2)
+                    time.sleep(0.5)
+                    page.keyboard.press("Control+a")
+                    page.keyboard.press("Backspace")
+                    time.sleep(0.2)
+                    page.keyboard.type(text_to_type, delay=120)
+                    time.sleep(0.5)
+                    page.keyboard.press("Enter")
+                    time.sleep(4)
+                    action_history.append(f"Step {step}: typed '{text_to_type}' into ID {target_id}")
+
+                elif action == "reload":
+                    page.reload(timeout=30000)
+                    time.sleep(5)
+                    action_history.append(f"Step {step}: reloaded")
+
+                elif action == "abort":
+                    self.send_localized({
+                        "sender": "bot",
+                        "action": "error",
+                        "text": decision.get("summary", "An error occurred."),
+                        "timestamp": datetime.now().strftime("%I:%M %p")
+                    })
+                    return None
+
+            except Exception as e:
+                error_msg = str(e)
+                logger.error("Action error in Step %d: %s", step, error_msg[:100])
+                last_error = error_msg[:100]
+
+            time.sleep(3)
+            step += 1
+
+        logger.warning("Max steps reached for item '%s'", query)
+        return None
+        
+    def _run_vlm_navigation(self, page, goal: str, address: str, phone: str, max_steps: int = 15):
+        """Run the VLM action loop for location setup & checkout tasks."""
+        step = 1
+        last_error = None
+        action_history = []
+        is_zepto = "zepto" in page.url.lower()
+
+        while step <= max_steps and self.is_active:
+            elements = get_interactive_elements(page)
+            screenshot_bytes = page.screenshot(type="jpeg", quality=40)
+
+            decision = ask_llm(goal, elements, action_history, screenshot_bytes, last_error)
+            last_error = None
+
+            action = decision.get("action")
+            status_text = decision.get("status", f"Executing: {action}...")
+
+            self.send_localized({
+                "sender": "bot",
+                "action": "step_progress",
+                "step": step,
+                "text": f"**{status_text}**",
+                "timestamp": datetime.now().strftime("%I:%M %p")
+            })
+
+            try:
+                if action == "done":
+                    summary = decision.get('summary', 'Task completed.')
+
+                    if self.phase is not None and self.phase == SessionPhase.CHECKOUT:
+                        order_verified = False
+                        try:
+                            page_text = page.inner_text("body").lower()
+                            verification_indicators = [
+                                "order placed", "order confirmed", "order id",
+                                "delivery", "arriving", "thank you", "successful",
+                                "payment", "checkout", "cart"
+                            ]
+                            order_verified = any(ind in page_text for ind in verification_indicators)
+                        except Exception:
+                            pass
+
+                        confirmation_msg = (
+                            f"**Please Confirm Your Order**\n\n{summary}\n\n"
+                            f"Would you like to proceed? Reply 'yes' to confirm or 'no' to cancel."
+                        )
+                        user_confirmation = self.wait_for_user_input(
+                            action="confirm_purchase",
+                            text=confirmation_msg,
+                            extra={"phase": "awaiting_confirmation", "verified": order_verified}
+                        ).strip().lower()
+
+                        positive_responses = [
+                            "yes", "y", "confirm", "ok", "place order", "proceed",
+                            "ஆம்", "சரி", "உறுதி"
+                        ]
+                        if any(resp in user_confirmation for resp in positive_responses):
+                            self.send_localized({
+                                "sender": "bot",
+                                "action": "order_success",
+                                "text": f"**ORDER CONFIRMED!**\n\n{summary}",
+                                "timestamp": datetime.now().strftime("%I:%M %p")
+                            })
+                            if self.phase is not None:
+                                self.phase = SessionPhase.SUCCESS
+                        else:
+                            self.send_localized({
+                                "sender": "bot",
+                                "action": "info",
+                                "text": "**Order cancelled.** No purchase was made.",
+                                "timestamp": datetime.now().strftime("%I:%M %p")
+                            })
+                            if self.phase is not None:
+                                self.phase = SessionPhase.CANCELLED
+
+                    action_history.append(f"Step {step}: done - {summary}")
+                    break
+
+                elif action == "ask_user":
+                    question = decision.get("question", "I need some information to proceed:")
+                    user_response = self.wait_for_user_input(
+                        action="ask_user",
+                        text=f"**{question}**"
+                    ).strip()
+                    action_history.append(f"Step {step}: Asked user '{question}'. User answered: '{user_response}'")
+                    self.send_localized({
+                        "sender": "bot",
+                        "action": "info",
+                        "text": "Got it! Resuming task...",
+                        "timestamp": datetime.now().strftime("%I:%M %p")
+                    })
+
+                elif action == "ask_address":
+                    user_response = self.wait_for_user_input(
+                        action="ask_address",
+                        text="**Delivery Address Required:** Please enter your full delivery address:"
+                    ).strip()
+                    action_history.append(f"Step {step}: Asked for address. Got: '{user_response}'")
+                    self.send_localized({
+                        "sender": "bot",
+                        "action": "info",
+                        "text": "Address received! Resuming task...",
+                        "timestamp": datetime.now().strftime("%I:%M %p")
+                    })
+
+                elif action == "input_phone":
+                    target_id = decision.get("id")
+                    user_phone = self.wait_for_user_input(
+                        action="input_phone",
+                        text="**Phone Number Required:** Please confirm your mobile number to proceed with login:",
+                        extra={"default_phone": phone}
+                    ).strip()
+                    if not user_phone:
+                        user_phone = phone
+                    try:
+                        input_field = page.locator(f'[custom-agent-id="{target_id}"]').first
+                        input_field.fill("")
+                        input_field.press_sequentially(user_phone, delay=150)
+                        page.keyboard.press("Enter")
+                    except Exception as e:
+                        logger.error("Failed to type phone: %s", e)
+                    action_history.append(f"Step {step}: Entered phone number")
+                    goal = "Phone entered. Now wait for the OTP page and use 'input_otp' when you see the OTP input fields."
+
+                elif action == "input_otp":
+                    target_id = decision.get("id")
+                    otp_len = 6 if is_zepto else 4
+                    otp_code = self.wait_for_user_input(
+                        action="ask_user",
+                        text="**OTP Verification Required:** An SMS code was sent to your phone. Enter the code using the Big Keypad:",
+                        extra={"type": "otp", "prompt": "Please enter the OTP sent to your phone:", "otpLength": otp_len}
+                    ).strip()
+                    try:
+                        input_field = page.locator(f'[custom-agent-id="{target_id}"]').first
+                        input_field.click()
+                        input_field.press_sequentially(otp_code, delay=150)
+                    except Exception as e:
+                        logger.warning("OTP input failed: %s", e)
+                    time.sleep(4)
+                    action_history.append(f"Step {step}: User entered OTP")
+
+                elif action == "show_results":
+                    action_history.append(f"Step {step}: show_results ignored during navigation")
+
+                elif action == "scroll":
+                    page.mouse.wheel(0, 600)
+                    time.sleep(2)
+                    action_history.append(f"Step {step}: scrolled")
+
+                elif action == "click":
+                    target_id = decision.get("id")
+                    try:
+                        btn = page.locator(f'[custom-agent-id="{target_id}"]').first
+                        btn.click(timeout=5000)
+                    except Exception:
+                        try:
+                            btn = page.locator(f'[custom-agent-id="{target_id}"]').first
+                            btn.evaluate('node => node.click()')
+                        except Exception:
+                            element_data = next((el for el in elements if str(el.get("id")) == str(target_id)), None)
+                            if element_data and "rect" in element_data:
+                                rect = element_data["rect"]
+                                page.mouse.click(rect["x"] + rect["w"] / 2, rect["y"] + rect["h"] / 2)
+                    time.sleep(4)
+                    action_history.append(f"Step {step}: clicked ID {target_id}")
+
+                elif action == "type":
+                    target_id = decision.get("id")
+                    text_to_type = decision.get("text", "")
+                    input_field = page.locator(f'[custom-agent-id="{target_id}"]').first
+                    try:
+                        input_field.click(timeout=5000, force=True)
+                    except Exception:
+                        element_data = next((el for el in elements if str(el.get("id")) == str(target_id)), None)
+                        if element_data and "rect" in element_data:
+                            rect = element_data["rect"]
+                            page.mouse.click(rect["x"] + rect["w"] / 2, rect["y"] + rect["h"] / 2)
+                    time.sleep(0.5)
+                    page.keyboard.press("Control+a")
+                    page.keyboard.press("Backspace")
+                    time.sleep(0.2)
+                    page.keyboard.type(text_to_type, delay=150)
+                    time.sleep(0.5)
+                    page.keyboard.press("Enter")
+                    time.sleep(4)
+                    action_history.append(f"Step {step}: typed '{text_to_type}'")
+
+                elif action == "reload":
+                    page.reload(timeout=30000)
+                    time.sleep(5)
+                    action_history.append(f"Step {step}: reloaded")
+
+                elif action == "abort":
+                    self.send_localized({
+                        "sender": "bot",
+                        "action": "error",
+                        "text": decision.get("summary", "An error occurred."),
+                        "timestamp": datetime.now().strftime("%I:%M %p")
+                    })
+                    if self.phase is not None:
+                        self.phase = SessionPhase.AGENT_UNAVAILABLE
+                    break
+
+            except Exception as e:
+                error_msg = str(e)
+                logger.error("Action error in Step %d: %s", step, error_msg[:100])
+                last_error = error_msg[:100]
+
+            time.sleep(4)
+            step += 1
+
+        if step > max_steps and self.is_active:
+            self.send_localized({
+                "sender": "bot",
+                "action": "error",
+                "text": "**Maximum steps reached.** The agent could not complete the order within the allowed steps. No order has been placed. Please try again with a simpler request.",
+                "timestamp": datetime.now().strftime("%I:%M %p")
+            })
+            if self.phase is not None:
+                self.phase = SessionPhase.MAX_STEPS_EXCEEDED
+
+    def run_multi_item_playwright(self, start_url: str, address: str, phone: str):
+        """Multi-item Playwright shopping flow for Zepto & Blinkit: Phase A -> B -> C -> D."""
         with sync_playwright() as p:
             browser = None
             try:
                 browser = p.chromium.launch(headless=False)
                 context = browser.new_context(viewport={'width': 1280, 'height': 800})
                 page = context.new_page()
-            
+
                 if STEALTH_AVAILABLE:
                     stealth_sync(page)
 
+                # =============================================
+                # PHASE A: One-time setup - navigate & set location
+                # =============================================
                 page.goto(start_url, timeout=60000)
-                time.sleep(3) 
+                time.sleep(3)
 
-                step = 1
-                last_error = None
-                action_history = [] 
-            
-                while step <= 25 and self.is_active:
-                    elements = get_interactive_elements(page)
-                    screenshot_bytes = page.screenshot(type="jpeg", quality=40)
-                
-                    decision = ask_llm(goal, elements, action_history, screenshot_bytes, last_error)
-                    last_error = None 
-                
-                    action = decision.get("action")
-                    reasoning = decision.get("reasoning", "")
-                    status_text = decision.get("status", f"Executing action: {action}...")
+                location_goal = (
+                    "Handle any location/delivery popup that appears. "
+                    "If forced to enter an address and none is provided, use the 'ask_address' action. "
+                    "Once the homepage or search bar is visible, use the 'done' action with summary 'Location set'."
+                )
+                self._run_vlm_navigation(page, location_goal, address, phone, max_steps=10)
 
-                    # Broadcast Step Status to UI
-                    self.send_localized({
-                        "sender": "bot",
-                        "action": "step_progress",
-                        "step": step,
-                        "text": f"🤖 **{status_text}**",
-                        "timestamp": datetime.now().strftime("%I:%M %p")
-                    })
+                # =============================================
+                # PHASE B + C LOOP: Shop items, then ask add-more-or-checkout
+                # =============================================
+                while self.item_queue and self.is_active:
+                    total_items = len(self.item_queue)
 
-                    try:
-                        if action == "done":
-                            # Deterministic order verification
-                            order_verified = False
-                            try:
-                                page_text = page.inner_text("body").lower()
-                                verification_indicators = [
-                                    "order placed", "order confirmed", "order id",
-                                    "delivery", "arriving", "thank you", "successful",
-                                    "payment", "checkout", "cart"
-                                ]
-                                order_verified = any(ind in page_text for ind in verification_indicators)
-                            except Exception:
-                                pass
-
-                            summary = decision.get('summary', 'Order placed successfully!')
-                        
-                            # Purchase confirmation gate — require explicit human approval
-                            confirmation_msg = (
-                                f"🛒 **Please Confirm Your Order**\n\n{summary}\n\n"
-                                f"Would you like to proceed? Reply 'yes' to confirm or 'no' to cancel."
-                            )
-                        
-                            user_confirmation = self.wait_for_user_input(
-                                action="confirm_purchase",
-                                text=confirmation_msg,
-                                extra={"phase": "awaiting_confirmation", "verified": order_verified}
-                            ).strip().lower()
-                        
-                            positive_responses = ["yes", "y", "confirm", "ok", "place order", "proceed",
-                                                  "ஆம்", "சரி", "உறுதி"]
-                        
-                            if any(resp in user_confirmation for resp in positive_responses):
-                                self.send_localized({
-                                    "sender": "bot",
-                                    "action": "order_success",
-                                    "text": f"🎉 **ORDER CONFIRMED!**\n\n{summary}",
-                                    "timestamp": datetime.now().strftime("%I:%M %p")
-                                })
-                                if self.phase is not None:
-                                    self.phase = SessionPhase.SUCCESS
-                            else:
-                                self.send_localized({
-                                    "sender": "bot",
-                                    "action": "info",
-                                    "text": "❌ **Order cancelled.** No purchase was made.",
-                                    "timestamp": datetime.now().strftime("%I:%M %p")
-                                })
-                                if self.phase is not None:
-                                    self.phase = SessionPhase.CANCELLED
+                    for i, item in enumerate(self.item_queue):
+                        if not self.is_active:
                             break
 
-                        elif action == "ask_user":
-                            # Handle general questions to the user (address, payment, etc.)
-                            question = decision.get("question", "I need some information to proceed:")
-                        
-                            prompt_msg = f"❓ **{question}**"
-                        
-                            # Wait for the user to answer via the frontend
-                            user_response = self.wait_for_user_input(
-                                action="ask_user",
-                                text=prompt_msg
-                            ).strip()
-                        
-                            # Add their answer to the history so the LLM reads it on the next loop
-                            action_history.append(f"Step {step}: Asked user '{question}'. User answered: '{user_response}'")
-                            self.send_localized({
-                                "sender": "bot",
-                                "action": "info",
-                                "text": "✅ Got it! Resuming task...",
-                                "timestamp": datetime.now().strftime("%I:%M %p")
-                            })
+                        self.send_ws_threadsafe({
+                            "sender": "bot",
+                            "type": "queue_progress",
+                            "action": "queue_progress",
+                            "current_index": i + 1,
+                            "total_items": total_items,
+                            "current_item": item["query"],
+                            "cart_summary": self.cart_summary,
+                            "text": f"Shopping Item {i + 1} of {total_items}: **{item['query']}**",
+                            "timestamp": datetime.now().strftime("%I:%M %p"),
+                            "lang": self.lang,
+                        })
 
-                        elif action == "ask_address":
-                            user_response = self.wait_for_user_input(
-                                action="ask_address",
-                                text="📍 **Delivery Address Required:** Please enter your full delivery address:"
-                            ).strip()
-                        
-                            action_history.append(f"Step {step}: Asked user for address. User answered: '{user_response}'")
-                            self.send_localized({
-                                "sender": "bot",
-                                "action": "info",
-                                "text": "✅ Address received! Resuming task...",
-                                "timestamp": datetime.now().strftime("%I:%M %p")
-                            })
+                        added_product = self.search_and_add_single_item(
+                            page,
+                            start_url,
+                            item,
+                            is_first_item=(i == 0 and len(self.cart_summary) == 0)
+                        )
 
-                        elif action == "show_results":
-                            if "zeptonow" in start_url:
-                                results = decision.get("results", [])
-                                if not results:
-                                    self.send_localized({
-                                        "sender": "bot",
-                                        "action": "error",
-                                        "text": "No search results found or parsed.",
-                                        "timestamp": datetime.now().strftime("%I:%M %p")
-                                    })
-                                    continue
-                            
-                                top_results = results[:5]
-                                requested_qty = extract_requested_quantity(final_command)
+                        if added_product:
+                            self.cart_summary.append(added_product)
 
-                                for product in top_results:
-                                    item_weight = product.get("weight", "")
-                                    qty_needed = calculate_quantity_needed(requested_qty, item_weight)
-                                    product["qty_needed"] = qty_needed
-                                    product["requested_qty_label"] = final_command
-                                    
-                                    if self.lang == "ta":
-                                        product["name_localized"] = localize_message(
-                                            product["name"], self.lang,
-                                            llm_client=local_client, model_name=MODEL_NAME
-                                        )
+                    self.item_queue = []
 
-                                # Ask user for their choice
-                                user_choice_str = self.wait_for_user_input(
-                                    action="show_results",
-                                    text="🛒 **Top Search Results:** Which item would you like to add? Tap an item or tell me the number:",
-                                    extra={"results": top_results}
-                                )
+                    if not self.is_active:
+                        break
 
-                                # Parse choice index (default to 0 if parsing fails)
-                                choice_idx = 0
-                                digits = re.findall(r'\d+', user_choice_str)
-                                if digits:
-                                    choice_idx = max(0, min(len(top_results) - 1, int(digits[0]) - 1))
-                        
-                                selected_item = top_results[choice_idx]
-                                product_name = selected_item.get("name", "")
-                                target_id = selected_item.get("add_button_id")
-                                qty_needed = selected_item.get("qty_needed", 1)
-
-                                # -------------------------------------------------------------
-                                # FIX 1: Robust Add Button Locator for Zepto / Blinkit
-                                # -------------------------------------------------------------
-                                add_btn = None
-
-                                # Strategy A: Find the button inside the product card by name
-                                # Zepto wraps cards in <a> or [data-testid="product-card"]
-                                first_word = product_name.split()[0] if product_name else ""
-                                card_locator = page.locator(
-                                    f'a:has-text("{first_word}"), [data-testid*="product"]:has-text("{first_word}")'
-                                ).first
-
-                                if card_locator.count() > 0:
-                                    # Look specifically for the ADD button inside that card
-                                    inner_add = card_locator.locator(
-                                        'button:has-text("ADD"), [data-testid*="add" i], button:has-text("+"), div[role="button"]:has-text("ADD")'
-                                    ).first
-                                    if inner_add.count() > 0 and inner_add.is_visible():
-                                        add_btn = inner_add
-                                        logger.info("Found Add button via parent card scoping for '%s'", first_word)
-
-                                # Strategy B: If scoped lookup failed, try LLM target_id
-                                if not add_btn and target_id is not None:
-                                    elem = page.locator(f'[custom-agent-id="{target_id}"]').first
-                                    if elem.count() > 0:
-                                        tag_name = elem.evaluate('el => el.tagName.toLowerCase()')
-                                        # If the LLM picked the <a> tag, find the <button> inside it!
-                                        if tag_name == 'a':
-                                            inner_btn = elem.locator('button, [role="button"], [data-testid*="add" i]').first
-                                            if inner_btn.count() > 0:
-                                                add_btn = inner_btn
-                                            else:
-                                                add_btn = elem
-                                        else:
-                                            add_btn = elem
-
-                                # Strategy C: Global fallback by text
-                                if not add_btn or add_btn.count() == 0:
-                                    add_btn = page.locator('button:has-text("ADD")').first
-
-                                successfully_added = 0
-                                add_btn_box = None
-
-                                try:
-                                    if add_btn and add_btn.count() > 0:
-                                        add_btn_box = add_btn.bounding_box()
-                                except Exception:
-                                    pass
-
-                                # Perform the click(s)
-                                for click_i in range(qty_needed):
-                                    try:
-                                        if click_i == 0:
-                                            if add_btn and add_btn.count() > 0:
-                                                # Use JS dispatch if standard click threatens navigation
-                                                try:
-                                                    add_btn.click(timeout=4000)
-                                                except Exception:
-                                                    add_btn.evaluate('btn => btn.click()')
-                                            
-                                                successfully_added += 1
-                                                time.sleep(2.0)
-
-                                                # -------------------------------------------------------------
-                                                # FIX 2: Handle accidental navigation to Product Details Page (PDP)
-                                                # -------------------------------------------------------------
-                                                current_url = page.url
-                                                if "/pn/" in current_url or "/prn/" in current_url:
-                                                    logger.warning("Accidentally opened product page: %s. Adding from PDP...", current_url)
-                                                    # On Zepto PDP, there is a large Add to Cart button
-                                                    pdp_btn = page.locator(
-                                                        'button:has-text("Add to Cart"), button:has-text("ADD"), [data-testid*="add" i]'
-                                                    ).first
-                                                    if pdp_btn.count() > 0 and pdp_btn.is_visible():
-                                                        pdp_btn.click()
-                                                        time.sleep(1.5)
-                                                    # Return back to search results
-                                                    page.go_back()
-                                                    time.sleep(2.0)
-                                            else:
-                                                logger.error("Could not find any valid Add button.")
-                                        else:
-                                            # Quantity increment logic (+ button)
-                                            plus_clicked = False
-                                            inc_selector = (
-                                                'button[aria-label*="increase" i], '
-                                                'button[aria-label*="increment" i], '
-                                                '[data-testid*="increase" i], '
-                                                '[data-testid*="increment" i], '
-                                                '[class*="plus" i]'
-                                            )
-                                            candidates = page.locator(inc_selector)
-                                            if candidates.count() > 0 and candidates.first.is_visible():
-                                                candidates.first.click(timeout=3000, force=True)
-                                                plus_clicked = True
-                                            elif add_btn_box:
-                                                # Fallback click to the right edge of original button
-                                                right_x = add_btn_box['x'] + add_btn_box['width'] - 10
-                                                center_y = add_btn_box['y'] + add_btn_box['height'] / 2
-                                                page.mouse.click(right_x, center_y)
-                                                plus_clicked = True
-
-                                            if plus_clicked:
-                                                successfully_added += 1
-                                            time.sleep(1.5)
-
-                                    except Exception as click_err:
-                                        logger.warning("Click %d failed: %s", click_i + 1, click_err)
-
-                                action_history.append(
-                                    f"Step {step}: Added {successfully_added}/{qty_needed} of '{product_name}' to cart"
-                                )
-                                goal = "Item added. Go to the cart, click Proceed/Checkout, and complete Login using 'input_phone' and 'input_otp'."
-
-                            else:
-                                results = decision.get("results", [])
-                                if not results:
-                                    self.send_localized({
-                                        "sender": "bot",
-                                        "action": "error",
-                                        "text": "No search results found or parsed.",
-                                        "timestamp": datetime.now().strftime("%I:%M %p")
-                                    })
-                                    continue
-                            
-                                top_results = results[:5]
-
-                                # Calculate the user's requested quantity from the command
-                                requested_qty = extract_requested_quantity(final_command)
-
-                                # Enrich each result with calculated quantity needed
-                                for product in top_results:
-                                    item_weight = product.get("weight", "")
-                                    qty_needed = calculate_quantity_needed(requested_qty, item_weight)
-                                    product["qty_needed"] = qty_needed
-                                    product["requested_qty_label"] = final_command  # So UI can show what user asked for
-                                
-                                    # Translate product name dynamically if in Tamil
-                                    if self.lang == "ta":
-                                        product["name"] = localize_message(
-                                            product["name"], self.lang, 
-                                            llm_client=local_client, model_name=MODEL_NAME
-                                        )
-
-                                # Send interactive Product Cards to UI and wait for user's selection
-                                user_choice_str = self.wait_for_user_input(
-                                    action="show_results",
-                                    text="🛒 **Top Search Results:** Which item would you like to add? Tap an item or tell me the number:",
-                                    extra={"results": top_results}
-                                )
-
-                                # Parse choice (1-5 or item name)
-                                choice_idx = 0
-                                digits = re.findall(r'\d+', user_choice_str)
-                                if digits:
-                                    choice_idx = max(0, min(len(top_results) - 1, int(digits[0]) - 1))
-                        
-                                selected_item = top_results[choice_idx]
-                                target_id = selected_item.get("add_button_id")
-                                qty_needed = selected_item.get("qty_needed", 1)
-
-                                if target_id is None:
-                                    # Re-observe page instead of using a magic fallback ID
-                                    logger.warning("No add_button_id found for selected product. Re-observing page.")
-                                    elements = get_interactive_elements(page)
-                                    # Try to find an 'Add' or '+' button near the product
-                                    for elem in elements:
-                                        elem_text = elem.get("text", "").lower()
-                                        if "add" in elem_text or elem_text == "+":
-                                            target_id = elem.get("id")
-                                            break
-                                    if target_id is None:
-                                        self.send_localized({
-                                            "sender": "bot",
-                                            "action": "error",
-                                            "text": "Could not find the Add button for this product. Please try selecting again.",
-                                            "timestamp": datetime.now().strftime("%I:%M %p")
-                                        })
-                                        continue
-
-                                # Build a clear status message showing quantity math
-                                item_weight_display = selected_item.get('weight', 'N/A')
-                                if qty_needed > 1:
-                                    cart_msg = (
-                                        f"✅ **Selected:** {selected_item.get('name')} "
-                                        f"({item_weight_display} × {qty_needed} = your requested quantity). "
-                                        f"Adding {qty_needed} to cart..."
-                                    )
-                                else:
-                                    cart_msg = (
-                                        f"✅ **Selected:** {selected_item.get('name')} "
-                                        f"(Price: {selected_item.get('price')}). Adding to cart..."
-                                    )
-
-                                self.send_localized({
-                                    "sender": "bot",
-                                    "action": "cart_update",
-                                    "text": cart_msg,
-                                    "timestamp": datetime.now().strftime("%I:%M %p")
-                                })
-
-                                # Click the Add button qty_needed times.
-                                # APPROACH: On grocery sites (Blinkit, Zepto, Swiggy), after clicking "Add",
-                                # the button transforms into a quantity widget: [−] [1] [+].
-                                # The "+" is often an SVG icon (NOT text), so text-based searches fail.
-                                # Instead, we:
-                                #   1. Record the Add button's bounding box
-                                #   2. After first click, find the element at that position
-                                #   3. Walk up to the quantity container
-                                #   4. Click the RIGHTMOST clickable child (always the increment button)
-
-                                successfully_added = 0
-
-                                # Record the position of the original Add button before clicking
-                                add_btn_box = None
-                                try:
-                                    add_btn = page.locator(f'[custom-agent-id="{target_id}"]').first
-                                    add_btn_box = add_btn.bounding_box()
-                                    logger.info("Add button bounding box: x=%.0f, y=%.0f, w=%.0f, h=%.0f",
-                                                add_btn_box['x'], add_btn_box['y'],
-                                                add_btn_box['width'], add_btn_box['height'])
-                                except Exception:
-                                    logger.warning("Could not get Add button bounding box")
-
-                                for click_i in range(qty_needed):
-                                    try:
-                                        if click_i == 0:
-                                            # First click: use the tagged Add button
-                                            try:
-                                                # We use a standard click first. We DO NOT use force=True because 
-                                                # if there is a transparent overlay (like a link to the PDP), 
-                                                # force=True will click the overlay and navigate away!
-                                                btn = page.locator(f'[custom-agent-id="{target_id}"]').first
-                                                btn.click(timeout=5000)
-                                            except Exception as first_err:
-                                                logger.warning("Standard click failed, falling back to JS click: %s", str(first_err)[:80])
-                                                # If intercepted by an overlay, dispatch a programmatic click directly to the button
-                                                btn.evaluate('node => node.click()')
-                                            successfully_added += 1
-                                            logger.info("Click 1/%d succeeded (Add button ID %s)", qty_needed, target_id)
-                                            time.sleep(2.5)  # Wait for DOM to transform Add -> [−][1][+]
-                                        else:
-                                            # Subsequent clicks: find and click the increment button.
-                                            plus_clicked = False
-
-                                            if add_btn_box:
-                                                try:
-                                                    # Playwright locator for common increment buttons on Zepto, Blinkit, Swiggy
-                                                    # Zepto often uses aria-label="Increase Quantity"
-                                                    # Blinkit often uses a plus icon or similar
-                                                    inc_selector = (
-                                                        'button[aria-label*="increase" i], '
-                                                        'button[aria-label*="increment" i], '
-                                                        'button[aria-label*="add" i]:not(:has-text("Add")), '
-                                                        '[data-testid*="increase" i], '
-                                                        '[data-testid*="increment" i], '
-                                                        '[class*="plus" i], '
-                                                        '[class*="increment" i]'
-                                                    )
-                                                
-                                                    # First try to find by specific semantic locators
-                                                    candidates = page.locator(inc_selector)
-                                                
-                                                    # If none found, fallback to anything with a "+" text
-                                                    if candidates.count() == 0:
-                                                        candidates = page.locator('button:has-text("+"), div:has-text("+"):not(:has(div))')
-                                                
-                                                    closest_btn = None
-                                                    min_dist = float('inf')
-                                                
-                                                    # Original Add button center
-                                                    orig_cx = add_btn_box['x'] + add_btn_box['width'] / 2
-                                                    orig_cy = add_btn_box['y'] + add_btn_box['height'] / 2
-                                                
-                                                    for i in range(candidates.count()):
-                                                        btn = candidates.nth(i)
-                                                        if btn.is_visible():
-                                                            box = btn.bounding_box()
-                                                            if box:
-                                                                cx = box['x'] + box['width'] / 2
-                                                                cy = box['y'] + box['height'] / 2
-                                                                # Check if the increment button is geometrically related to the original button.
-                                                                # Instead of center distance (which fails on wide buttons),
-                                                                # check if it's within or very close to the original bounding box.
-                                                            
-                                                                dx = max(0, add_btn_box['x'] - cx, cx - (add_btn_box['x'] + add_btn_box['width']))
-                                                                dy = max(0, add_btn_box['y'] - cy, cy - (add_btn_box['y'] + add_btn_box['height']))
-                                                                dist_to_box = (dx**2 + dy**2)**0.5
-                                                            
-                                                                # It should be inside or within 50px of the original button's area
-                                                                if dist_to_box <= 50 and dist_to_box < min_dist:
-                                                                    min_dist = dist_to_box
-                                                                    closest_btn = btn
-                                                                
-                                                    if closest_btn:
-                                                        logger.info("Found closest increment button (dist=%.0f)", min_dist)
-                                                        # Click it via Playwright to ensure proper event dispatching
-                                                        closest_btn.click(timeout=3000, force=True)
-                                                        plus_clicked = True
-                                                    else:
-                                                        logger.warning("No increment candidate found within 80px")
-                                                except Exception as pw_err:
-                                                    logger.warning("Playwright increment search failed: %s", str(pw_err)[:100])
-
-                                            # Fallback: click the right edge of where the Add button was
-                                            # The quantity widget replaces the Add button in the same spot,
-                                            # and "+" is always on the far right.
-                                            if not plus_clicked and add_btn_box:
-                                                try:
-                                                    right_x = add_btn_box['x'] + add_btn_box['width'] - 10
-                                                    center_y = add_btn_box['y'] + add_btn_box['height'] / 2
-                                                    logger.info("Fallback: clicking right edge at (%.0f, %.0f)", right_x, center_y)
-                                                    page.mouse.click(right_x, center_y)
-                                                    plus_clicked = True
-                                                except Exception as edge_err:
-                                                    logger.warning("Right-edge click failed: %s", str(edge_err)[:80])
-
-                                            if plus_clicked:
-                                                successfully_added += 1
-                                                logger.info("Click %d/%d succeeded", click_i + 1, qty_needed)
-                                            else:
-                                                logger.warning("Click %d/%d: Could not find increment button", click_i + 1, qty_needed)
-
-                                            time.sleep(1.5)
-
-                                    except Exception as click_err:
-                                        logger.warning("Click %d/%d failed: %s", click_i + 1, qty_needed, str(click_err)[:100])
-
-                                # Log what actually happened
-                                if successfully_added < qty_needed:
-                                    logger.warning("Only added %d/%d units to cart", successfully_added, qty_needed)
-                                    self.send_localized({
-                                        "sender": "bot",
-                                        "action": "info",
-                                        "text": f"⚠️ Added {successfully_added} of {qty_needed} to cart. You may need to adjust the quantity manually.",
-                                        "timestamp": datetime.now().strftime("%I:%M %p")
-                                    })
-
-                                time.sleep(3)
-                        
-                                action_history.append(
-                                    f"Step {step}: User selected '{selected_item.get('name')}' "
-                                    f"(weight: {item_weight_display}), added {successfully_added}/{qty_needed} unit(s) to cart"
-                                )
-                                goal = "Item added. Go to the cart, click Proceed/Checkout, and complete Login using 'input_phone' and 'input_otp'."
-
-                        elif action == "input_phone":
-                            target_id = decision.get("id")
-                            user_phone = self.wait_for_user_input(
-                                action="input_phone",
-                                text="📱 **Phone Number Required:** Please confirm your mobile number to proceed with login:",
-                                extra={"default_phone": phone}
-                            ).strip()
-
-                            if not user_phone:
-                                user_phone = phone
-
-                            try:
-                                input_field = page.locator(f'[custom-agent-id="{target_id}"]').first
-                                input_field.fill("")
-                                input_field.press_sequentially(user_phone, delay=150)
-                                page.keyboard.press("Enter")
-                            except Exception as e:
-                                logger.error("Failed to type phone: %s", e)
-                        
-                            action_history.append(f"Step {step}: Entered phone number {user_phone}")
-                            goal = "Phone entered. Now wait for the OTP page and use 'input_otp' when you see the OTP input fields."
-
-                        elif action == "input_otp":
-                            target_id = decision.get("id")
-                            otp_code = self.wait_for_user_input(
-                                action="ask_user",
-                                text="🔐 **OTP Verification Required:** An SMS code was sent to your phone. Enter the code using the Big Keypad:",
-                                extra={"type": "otp", "prompt": "Please enter the OTP sent to your phone:", "otpLength": 6}
-                            ).strip()
-
-                            try:
-                                input_field = page.locator(f'[custom-agent-id="{target_id}"]').first
-                                input_field.click() 
-                                input_field.press_sequentially(otp_code, delay=150)
-                            except Exception as e:
-                                logger.warning("OTP input failed: %s", e)
-                            time.sleep(4)
-                            action_history.append(f"Step {step}: User entered OTP into ID {target_id}")
-
-                        elif action == "scroll":
-                            page.mouse.wheel(0, 600)
-                            time.sleep(2)
-                            action_history.append(f"Step {step}: scrolled")
-
-                        elif action == "click":
-                            target_id = decision.get("id")
-                            try:
-                                btn = page.locator(f'[custom-agent-id="{target_id}"]').first
-                                btn.click(timeout=5000)
-                            except Exception as e:
-                                logger.warning("Standard click failed for ID %s, falling back to JS click: %s", target_id, str(e)[:80])
-                                try:
-                                    btn = page.locator(f'[custom-agent-id="{target_id}"]').first
-                                    btn.evaluate('node => node.click()')
-                                except Exception as e2:
-                                    logger.warning("JS click also failed, falling back to coordinate click: %s", str(e2)[:80])
-                                    element_data = next((e for e in elements if str(e.get("id")) == str(target_id)), None)
-                                    if element_data and "rect" in element_data:
-                                        rect = element_data["rect"]
-                                        cx = rect["x"] + rect["w"] / 2
-                                        cy = rect["y"] + rect["h"] / 2
-                                        page.mouse.click(cx, cy)
-                                
-                            time.sleep(4)
-                            action_history.append(f"Step {step}: clicked ID {target_id}")
-
-                        elif action == "type":
-                            target_id = decision.get("id")
-                            text_to_type = decision.get("text", "")
-                            input_field = page.locator(f'[custom-agent-id="{target_id}"]').first
-                            
-                            # Click and wait for any focus animations to settle
-                            try:
-                                input_field.click(timeout=5000, force=True) 
-                            except Exception as click_err:
-                                logger.warning("Playwright locator click failed (possibly detached). Falling back to coordinate click: %s", str(click_err)[:80])
-                                # Fallback to coordinate click using the saved rect
-                                element_data = next((e for e in elements if str(e.get("id")) == str(target_id)), None)
-                                if element_data and "rect" in element_data:
-                                    rect = element_data["rect"]
-                                    cx = rect["x"] + rect["w"] / 2
-                                    cy = rect["y"] + rect["h"] / 2
-                                    page.mouse.click(cx, cy)
-                                    
-                            time.sleep(0.5)
-                            
-                            # Clear existing text just in case (Ctrl+A / Cmd+A, Backspace)
-                            page.keyboard.press("Control+a")
-                            page.keyboard.press("Backspace")
-                            time.sleep(0.2)
-                            
-                            # Type into whatever element currently has focus!
-                            # We use page.keyboard.type instead of input_field.press_sequentially
-                            # because if the LLM selected a wrapper <div> or icon instead of the actual
-                            # <input>, press_sequentially will timeout waiting for the div to become typeable.
-                            page.keyboard.type(text_to_type, delay=150)
-                            
-                            time.sleep(0.5)
-                            page.keyboard.press("Enter")
-                            time.sleep(4)
-                            action_history.append(f"Step {step}: typed '{text_to_type}' into ID {target_id}")
-
-                        elif action == "reload":
-                            page.reload(timeout=30000)
-                            time.sleep(5)
-                            action_history.append(f"Step {step}: reloaded the page")
-
-                        elif action == "abort":
-                            self.send_localized({
-                                "sender": "bot",
-                                "action": "error",
-                                "text": decision.get("summary", "An error occurred."),
-                                "timestamp": datetime.now().strftime("%I:%M %p")
-                            })
-                            if self.phase is not None:
-                                self.phase = SessionPhase.AGENT_UNAVAILABLE
-                            break
-
-                    except Exception as e:
-                        error_msg = str(e)
-                        logger.error("Action error in Step %d: %s", step, error_msg[:100])
-                        last_error = error_msg[:100]
-
-                    time.sleep(4)
-                    step += 1
-
-                # Handle max steps exceeded
-                if step > 25 and self.is_active:
-                    self.send_localized({
-                        "sender": "bot",
-                        "action": "error",
-                        "text": "⚠️ **Maximum steps reached.** The agent could not complete the order within 25 steps. No order has been placed. Please try again with a simpler request.",
-                        "timestamp": datetime.now().strftime("%I:%M %p")
-                    })
+                    # =============================================
+                    # PHASE C: "Add More or Checkout?" HITL Decision
+                    # =============================================
                     if self.phase is not None:
-                        self.phase = SessionPhase.MAX_STEPS_EXCEEDED
+                        self.phase = SessionPhase.ASK_MORE_OR_CHECKOUT
+
+                    cart_text_en = "\n".join(
+                        f"  - {c['name']} - {c.get('price', 'N/A')}" + (f" x{c['qty']}" if c.get('qty', 1) > 1 else "")
+                        for c in self.cart_summary
+                    )
+
+                    decision = self.wait_for_user_input(
+                        action="ask_more_or_checkout",
+                        text="I have added your items to the cart. Would you like to add anything else, or proceed to checkout?",
+                        extra={
+                            "cart_summary": self.cart_summary,
+                            "cart_text": cart_text_en,
+                            "message_en": "I have added your items to the cart. Would you like to add anything else, or proceed to checkout?",
+                            "message_ta": "பொருட்கள் கூடையில் சேர்க்கப்பட்டன. மேலும் பொருட்கள் சேர்க்க வேண்டுமா அல்லது ஆர்டர் செய்யலாமா?",
+                        }
+                    ).strip()
+
+                    decision_lower = decision.lower()
+                    checkout_keywords = [
+                        "checkout", "proceed", "done", "that's all", "no", "place order",
+                        "போதும்", "ஆர்டர்"
+                    ]
+
+                    if any(kw in decision_lower for kw in checkout_keywords) or decision == "CHECKOUT":
+                        self.send_localized({
+                            "sender": "bot",
+                            "action": "info",
+                            "text": "Proceeding to checkout...",
+                            "timestamp": datetime.now().strftime("%I:%M %p")
+                        })
+                        break
+                    else:
+                        self.send_localized({
+                            "sender": "bot",
+                            "action": "thinking",
+                            "text": "Got it! Adding more items to your cart...",
+                            "timestamp": datetime.now().strftime("%I:%M %p")
+                        })
+                        new_items = extract_items_from_text(decision, decision)
+                        self.item_queue = list(new_items)
+                        logger.info("User added %d more items: %s", len(new_items), new_items)
+
+                # =============================================
+                # PHASE D: Unified Cart & Checkout
+                # =============================================
+                if self.is_active:
+                    if self.phase is not None:
+                        self.phase = SessionPhase.CHECKOUT
+
+                    checkout_goal = (
+                        "Navigate to the cart and click Proceed/Checkout. "
+                        "If a login screen appears, use 'input_phone' for the mobile number "
+                        "and 'input_otp' for the OTP. Complete the checkout process."
+                    )
+                    self._run_vlm_navigation(page, checkout_goal, address, phone, max_steps=20)
 
             finally:
                 if browser:
@@ -1347,7 +1519,6 @@ class AgentSession:
                         browser.close()
                     except Exception as be:
                         logger.error("Browser cleanup error: %s", be)
-
 
 
 # ==========================================
@@ -1390,19 +1561,15 @@ async def websocket_endpoint(websocket: WebSocket):
 
             logger.info("Received WebSocket message: '%s' (stage: %s)", user_msg, session.stage)
 
-            # If agent is currently waiting for input (e.g. product choice, phone, OTP)
-            # Use explicit waiting_for state instead of fragile thread.is_alive() check
             is_waiting = False
             if STATE_MACHINE_AVAILABLE and session.waiting_for is not None:
                 is_waiting = session.waiting_for != WaitingFor.NOTHING
             else:
-                # Legacy fallback
                 is_waiting = not session.user_input_queue.empty() or (session.thread and session.thread.is_alive())
             
             if is_waiting:
                 session.user_input_queue.put(user_msg)
             else:
-                # Start new order workflow
                 session.stage = "running"
                 thread = threading.Thread(
                     target=session.run_stage_1_and_2,
