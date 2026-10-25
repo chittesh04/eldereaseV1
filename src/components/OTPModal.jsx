@@ -16,15 +16,18 @@ export function OTPModal({
   const [otpDigits, setOtpDigits] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const hiddenInputRef = useRef(null);
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
     if (isOpen) {
+      wasOpenRef.current = true;
       setOtpDigits('');
       setSubmitting(false);
       setTimeout(() => {
         hiddenInputRef.current?.focus();
       }, 100);
-    } else {
+    } else if (wasOpenRef.current) {
+      wasOpenRef.current = false;
       stopAllSpeech();
     }
   }, [isOpen]);
@@ -41,7 +44,6 @@ export function OTPModal({
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      stopAllSpeech();
     };
   }, [isOpen, onClose]);
 

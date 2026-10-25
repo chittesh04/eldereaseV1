@@ -14,7 +14,7 @@ import { useOrderState } from './hooks/useOrderState';
 import { PurchaseConfirmationModal } from './components/PurchaseConfirmationModal';
 import { QueueProgressBanner } from './components/QueueProgressBanner';
 import { AddMoreOrCheckoutModal } from './components/AddMoreOrCheckoutModal';
-import { speakGlobal, stopAllSpeech } from './components/SpeakButton';
+import { speakGlobal, stopAllSpeech, buildBotMessageSpeechText, unlockAudio } from './components/SpeakButton';
 
 export function App() {
   // Language State ('en' | 'ta')
@@ -63,7 +63,9 @@ export function App() {
   const [isHighContrast, setIsHighContrast] = useState(() => {
     return localStorage.getItem('elderease_highContrast') === 'true';
   });
-  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [ttsEnabled, setTtsEnabled] = useState(() => {
+    return localStorage.getItem('elderease_tts') !== 'false';
+  });
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState(null);
 
@@ -93,6 +95,8 @@ export function App() {
   const handleToggleLanguage = () => {
     const nextLang = lang === 'en' ? 'ta' : 'en';
     setLang(nextLang);
+    lastSpokenSignatureRef.current = null;
+    lastSpokenActionRef.current = null;
 
     if (messages.length <= 1) {
       setMessages([
@@ -110,11 +114,9 @@ export function App() {
 
   // TTS Hook (Gotcha 1: Audio Autoplay Gate + Tamil Voice Integration)
   const {
-    speak,
     stop: stopTTS,
     isSpeaking,
     hasInteracted,
-    unlockAudio,
   } = useSpeechSynthesis({
     enabled: ttsEnabled,
     lang: lang,
@@ -135,12 +137,6 @@ export function App() {
     };
 
     setMessages((prev) => [...prev, newMsg]);
-
-    // Read aloud if TTS is enabled (skip step progress to avoid voice clutter)
-    if (data.sender !== 'user' && ttsEnabled && data.action !== 'step_progress') {
-      setSpeakingMessageId(newMsg.id);
-      speakGlobal(data.text, data.lang || lang, `msg-${newMsg.id}`);
-    }
 
     // Dispatch to order state machine based on backend action
     switch (data.action) {
@@ -194,7 +190,97 @@ export function App() {
     if (data.type === 'otp') {
       orderDispatch({ type: 'OTP_REQUESTED', prompt: data.prompt, otpLength: data.otpLength });
     }
-  }, [ttsEnabled, speak, lang, orderDispatch]);
+  }, [orderDispatch]);
+
+  // Reactive Auto-Read on Every New Bot Message
+  const lastSpokenSignatureRef = useRef(null);
+  const lastSpokenActionRef = useRef(null);
+
+  useEffect(() => {
+    if (!ttsEnabled) {
+      return;
+    }
+
+    if (!messages || messages.length === 0) {
+      return;
+    }
+
+    const lastIdx = messages.length - 1;
+    const lastMsg = messages[lastIdx];
+    if (!lastMsg || lastMsg.sender !== 'bot' || !lastMsg.text?.trim()) {
+      return;
+    }
+
+    // Ignore placeholder thinking states that don't need reading
+    if (lastMsg.action === 'searching' && !lastMsg.text?.trim()) {
+      return;
+    }
+
+    // Unique signature for this message state
+    const speechSignature = `${lastMsg.id || messages.length}-${lastMsg.action || ''}-${lastMsg.text || ''}-${(lastMsg.results || []).length}`;
+
+    // Avoid re-reading the exact same message signature
+    if (lastSpokenSignatureRef.current === speechSignature) {
+      return;
+    }
+
+    const CRITICAL_ACTIONS = [
+      'ask_clarification',
+      'show_results',
+      'ask_more_or_checkout',
+      'confirm_purchase',
+      'order_success',
+      'otp_requested',
+      'input_phone',
+    ];
+
+    const isStep = lastMsg.action === 'step_progress';
+
+    // If an intermediate step arrives while a critical prompt is active/speaking, protect the critical prompt!
+    if (isStep && lastSpokenActionRef.current && CRITICAL_ACTIONS.includes(lastSpokenActionRef.current)) {
+      if (typeof window !== 'undefined' && window.speechSynthesis?.speaking) {
+        return;
+      }
+    }
+
+    lastSpokenSignatureRef.current = speechSignature;
+    lastSpokenActionRef.current = lastMsg.action || 'bot_message';
+
+    const textToRead = buildBotMessageSpeechText(lastMsg, lang);
+    if (textToRead && textToRead.trim()) {
+      setSpeakingMessageId(lastMsg.id);
+      console.log('[Auto-TTS] Speaking:', textToRead);
+      speakGlobal(textToRead, lang, 'msg-' + (lastMsg.id ?? lastIdx), true);
+    }
+  }, [messages, ttsEnabled, lang]);
+
+  // Toggle Voice ON / OFF with instant audio feedback
+  const handleToggleTts = () => {
+    const nextVal = !ttsEnabled;
+    setTtsEnabled(nextVal);
+    localStorage.setItem('elderease_tts', nextVal.toString());
+
+    if (!nextVal) {
+      stopAllSpeech();
+    } else {
+      if (!hasInteracted) {
+        unlockAudio();
+      }
+      // Instantly speak the latest bot message currently on screen
+      const latestBotMsg = [...messages].reverse().find((m) => m.sender === 'bot');
+      if (latestBotMsg) {
+        const speechSignature = `${latestBotMsg.id || messages.length}-${latestBotMsg.action || ''}-${latestBotMsg.text || ''}-${(latestBotMsg.results || []).length}`;
+        lastSpokenSignatureRef.current = speechSignature;
+        lastSpokenActionRef.current = latestBotMsg.action || 'bot_message';
+        const textToRead = buildBotMessageSpeechText(latestBotMsg, lang);
+        if (textToRead && textToRead.trim()) {
+          setSpeakingMessageId(latestBotMsg.id);
+          console.log('[Auto-TTS] Manual Toggle Speaking:', textToRead);
+          speakGlobal(textToRead, lang, `msg-${latestBotMsg.id || messages.length - 1}`, true);
+        }
+      }
+    }
+  };
 
   const [wsUrl, setWsUrl] = useState(import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws');
 
@@ -316,6 +402,8 @@ export function App() {
   const handleResetChat = () => {
     stopAllSpeech();
     stopTTS();
+    lastSpokenSignatureRef.current = null;
+    lastSpokenActionRef.current = null;
     setMessages([
       {
         id: 'welcome-' + Date.now(),
@@ -350,10 +438,7 @@ export function App() {
         isHighContrast={isHighContrast}
         setIsHighContrast={setIsHighContrast}
         ttsEnabled={ttsEnabled}
-        setTtsEnabled={(val) => {
-          setTtsEnabled(val);
-          if (!val) stopAllSpeech();
-        }}
+        onToggleTts={handleToggleTts}
         onResetChat={handleResetChat}
         onOpenHelp={() => setIsHelpOpen(true)}
       />

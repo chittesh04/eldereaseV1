@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CheckCircle2, ShoppingCart, Search, Lock, User, Bot, Sparkles, Terminal, Phone } from 'lucide-react';
 import { ProductSelectionCard } from './ProductSelectionCard';
-import { SpeakButton } from './SpeakButton';
+import { SpeakButton, buildBotMessageSpeechText } from './SpeakButton';
 import { translations } from '../constants/translations';
 
 export function MessageBubble({
@@ -150,7 +150,7 @@ export function MessageBubble({
             {/* Read Aloud Button for Bot messages with Listen <-> Stop toggle */}
             {isBot && (
               <SpeakButton
-                text={message.text}
+                text={buildBotMessageSpeechText(message, lang)}
                 lang={lang}
                 id={`msg-${message.id}`}
                 isHighContrast={isHighContrast}

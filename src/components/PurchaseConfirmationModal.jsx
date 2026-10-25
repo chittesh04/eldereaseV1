@@ -11,14 +11,20 @@ export function PurchaseConfirmationModal({
   summary = '',
   isHighContrast,
 }) {
-  const t = translations[lang] || translations.en;
+  const wasOpenRef = React.useRef(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      wasOpenRef.current = true;
+    } else if (wasOpenRef.current) {
+      wasOpenRef.current = false;
+      stopAllSpeech();
+    }
+  }, [isOpen]);
 
   // Escape key to cancel
   useEffect(() => {
-    if (!isOpen) {
-      stopAllSpeech();
-      return;
-    }
+    if (!isOpen) return;
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         stopAllSpeech();
@@ -28,7 +34,6 @@ export function PurchaseConfirmationModal({
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      stopAllSpeech();
     };
   }, [isOpen, onCancel]);
 

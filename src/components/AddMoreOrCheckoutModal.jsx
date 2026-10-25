@@ -38,6 +38,7 @@ export function AddMoreOrCheckoutModal({
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const recognitionRef = useRef(null);
+  const wasOpenRef = useRef(false);
 
   // Calculate total item count and estimated price
   const totalUnits = cartSummary.reduce(
@@ -117,7 +118,7 @@ export function AddMoreOrCheckoutModal({
   const toggleReadAloud = () => {
     if (!('speechSynthesis' in window)) return;
     if (isSpeaking) {
-      window.speechSynthesis.cancel();
+      stopAllSpeech();
       setIsSpeaking(false);
     } else {
       speakText(buildSpokenSummary());
@@ -145,6 +146,7 @@ export function AddMoreOrCheckoutModal({
   // Reset state & auto-announce when modal opens
   useEffect(() => {
     if (isOpen) {
+      wasOpenRef.current = true;
       setAddMoreText('');
       setShowAddMoreInput(false);
       setIsOrderSuccess(false);
@@ -157,9 +159,10 @@ export function AddMoreOrCheckoutModal({
       }, 350);
       return () => {
         clearTimeout(timer);
-        stopAllSpeech();
       };
-    } else {
+    } else if (wasOpenRef.current) {
+      // ONLY stop speech when the modal transitions from open to closed!
+      wasOpenRef.current = false;
       stopAllSpeech();
       setIsSpeaking(false);
       if (recognitionRef.current) {
@@ -169,6 +172,16 @@ export function AddMoreOrCheckoutModal({
       }
     }
   }, [isOpen]); // Only run when modal open state toggles
+
+  // Ensure unmounting while open cleans up speech, but never while closed
+  useEffect(() => {
+    return () => {
+      if (wasOpenRef.current) {
+        wasOpenRef.current = false;
+        stopAllSpeech();
+      }
+    };
+  }, []);
 
   if (!isOpen && !isOrderSuccess) return null;
 

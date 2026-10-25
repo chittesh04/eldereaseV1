@@ -22,6 +22,7 @@ export function Header({
   setIsHighContrast,
   ttsEnabled,
   setTtsEnabled,
+  onToggleTts,
   onResetChat,
   onOpenHelp,
 }) {
@@ -168,7 +169,7 @@ export function Header({
 
           {/* Speech / Voice Narration (TTS) Toggle */}
           <button
-            onClick={() => setTtsEnabled(!ttsEnabled)}
+            onClick={onToggleTts || (() => setTtsEnabled && setTtsEnabled(!ttsEnabled))}
             className={`touch-target px-3 py-2 rounded-xl font-bold flex items-center gap-2 border transition-all ${
               ttsEnabled
                 ? 'bg-blue-700 text-white border-blue-800 hover:bg-blue-800'
