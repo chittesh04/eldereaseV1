@@ -29,6 +29,7 @@ const initialState = {
   defaultPhone: '',
   otpPrompt: '',
   isOtpModalOpen: false,
+  otpLength: 6,
   confirmationData: null,
 };
 
@@ -59,6 +60,7 @@ function orderReducer(state, event) {
         ...state,
         phase: ORDER_PHASES.AWAITING_OTP,
         otpPrompt: event.prompt || state.otpPrompt,
+        otpLength: event.otpLength || 6,
         isOtpModalOpen: true,
       };
 
@@ -139,6 +141,7 @@ export function useOrderState(defaultOtpPrompt = '') {
     phase: state.phase,
     defaultPhone: state.defaultPhone,
     otpPrompt: state.otpPrompt,
+    otpLength: state.otpLength,
     isOtpModalOpen: state.isOtpModalOpen,
     confirmationData: state.confirmationData,
     

@@ -67,7 +67,10 @@ from i18n import localize_message, to_english
 # CONFIGURATIONS (from your actual script)
 # ==========================================
 
-LM_STUDIO_URL = os.getenv("LM_STUDIO_URL", "http://100.116.69.78:1234/v1")
+# LM_STUDIO_URL = os.getenv("LM_STUDIO_URL", "http://100.116.69.78:1234/v1")
+
+LM_STUDIO_URL = os.getenv("LM_STUDIO_URL", "http://100.126.219.8:1234/v1")
+
 MODEL_NAME = os.getenv("LM_STUDIO_MODEL", "qwen/qwen3-vl-8b")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
@@ -525,7 +528,7 @@ class AgentSession:
         self.send_localized({
             "sender": "bot",
             "action": "thinking",
-            "text": "🧠 Agent is thinking about what to ask...",
+            "text": " Agent is thinking about what to ask...",
             "timestamp": datetime.now().strftime("%I:%M %p")
         })
 
@@ -1053,7 +1056,7 @@ class AgentSession:
                             otp_code = self.wait_for_user_input(
                                 action="ask_user",
                                 text="🔐 **OTP Verification Required:** An SMS code was sent to your phone. Enter the code using the Big Keypad:",
-                                extra={"type": "otp", "prompt": "Please enter the OTP sent to your phone:"}
+                                extra={"type": "otp", "prompt": "Please enter the OTP sent to your phone:", "otpLength": 4}
                             ).strip()
 
                             try:

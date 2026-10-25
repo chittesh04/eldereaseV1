@@ -45,6 +45,7 @@ export function App() {
     isOtpModalOpen,
     defaultPhone,
     otpPrompt,
+    otpLength,
     confirmationData,
     dispatch: orderDispatch,
   } = useOrderState(t.otpDefaultPrompt);
@@ -140,7 +141,7 @@ export function App() {
         orderDispatch({ type: 'PHONE_REQUESTED', defaultPhone: data.default_phone || '' });
         break;
       case 'otp_requested':
-        orderDispatch({ type: 'OTP_REQUESTED', prompt: data.prompt });
+        orderDispatch({ type: 'OTP_REQUESTED', prompt: data.prompt, otpLength: data.otpLength });
         break;
       case 'confirm_purchase':
         orderDispatch({ type: 'CONFIRMATION_REQUESTED', data: { summary: data.text, verified: data.verified } });
@@ -169,7 +170,7 @@ export function App() {
 
     // Also handle OTP via type field
     if (data.type === 'otp') {
-      orderDispatch({ type: 'OTP_REQUESTED', prompt: data.prompt });
+      orderDispatch({ type: 'OTP_REQUESTED', prompt: data.prompt, otpLength: data.otpLength });
     }
   }, [ttsEnabled, speak, lang, orderDispatch]);
 
@@ -379,6 +380,7 @@ export function App() {
         onClose={() => orderDispatch({ type: 'CLOSE_OTP_MODAL' })}
         onSubmitOtp={handleOtpSubmit}
         promptText={otpPrompt}
+        otpLength={otpLength}
         isHighContrast={isHighContrast}
       />
 
