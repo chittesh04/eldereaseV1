@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { Send, Mic, MicOff, Hash, Loader2, Phone } from 'lucide-react';
+import { stopAllSpeech } from './SpeakButton';
 import { translations } from '../constants/translations';
 
 export function InputArea({
@@ -29,9 +30,19 @@ export function InputArea({
     }
   }, [isBotThinking, isWaitingForOTP, isWaitingForPhone]);
 
+  const handleMicToggle = () => {
+    if (isListening) {
+      onStopVoice();
+    } else {
+      stopAllSpeech();
+      onStartVoice();
+    }
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!inputText.trim() || isBotThinking) return;
+    stopAllSpeech();
     onSendMessage(inputText.trim());
   };
 
@@ -125,7 +136,7 @@ export function InputArea({
           {isVoiceSupported ? (
             <button
               type="button"
-              onClick={isListening ? onStopVoice : onStartVoice}
+              onClick={handleMicToggle}
               disabled={isBotThinking}
               className={`touch-target p-3.5 rounded-2xl flex items-center justify-center font-bold transition-all shadow-md ${
                 isListening

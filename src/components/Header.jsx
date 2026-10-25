@@ -9,6 +9,7 @@ import {
   ShoppingBag,
   Languages
 } from 'lucide-react';
+import { useCurrentSpeakingId, stopAllSpeech } from './SpeakButton';
 import { translations } from '../constants/translations';
 
 export function Header({
@@ -25,6 +26,8 @@ export function Header({
   onOpenHelp,
 }) {
   const t = translations[lang] || translations.en;
+  const activeSpeakingId = useCurrentSpeakingId();
+  const isSpeakingAny = Boolean(activeSpeakingId);
 
   const getStatusBadge = () => {
     switch (status) {
@@ -179,6 +182,26 @@ export function Header({
               {ttsEnabled ? t.voiceOn : t.voiceMuted}
             </span>
           </button>
+
+          {/* Global Emergency Stop Speech Button */}
+          {isSpeakingAny && (
+            <button
+              type="button"
+              onClick={stopAllSpeech}
+              className={`touch-target px-3.5 py-2 rounded-xl font-black flex items-center gap-2 border-2 transition-all animate-pulse shadow-lg ${
+                isHighContrast
+                  ? 'bg-yellow-300 text-black border-white hover:bg-yellow-400 ring-2 ring-white'
+                  : 'bg-red-600 text-white border-red-700 hover:bg-red-700 shadow-red-200 ring-2 ring-red-300'
+              }`}
+              title={lang === 'ta' ? 'குரலை நிறுத்து' : 'Stop Voice'}
+              aria-label={lang === 'ta' ? 'குரலை நிறுத்து' : 'Stop Voice'}
+            >
+              <VolumeX className="w-5 h-5 shrink-0" />
+              <span className="text-sm font-black whitespace-nowrap">
+                {lang === 'ta' ? 'குரலை நிறுத்து' : 'Stop Voice'}
+              </span>
+            </button>
+          )}
 
           {/* Reset Conversation */}
           <button

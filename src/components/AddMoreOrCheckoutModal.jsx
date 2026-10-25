@@ -14,6 +14,7 @@ import {
   Clock,
   ShieldCheck,
 } from 'lucide-react';
+import { SpeakButton, speakGlobal, stopAllSpeech } from './SpeakButton';
 import { translations } from '../constants/translations';
 
 /**
@@ -52,33 +53,10 @@ export function AddMoreOrCheckoutModal({
     return sum;
   }, 0);
 
-  // Speak any text aloud using Web Speech Synthesis API
+  // Speak any text aloud using unified global speech manager
   const speakText = useCallback(
-    (textToSpeak) => {
-      if (!('speechSynthesis' in window)) return;
-
-      window.speechSynthesis.cancel();
-
-      const utterance = new SpeechSynthesisUtterance(textToSpeak);
-      utterance.lang = lang === 'ta' ? 'ta-IN' : 'en-IN';
-      utterance.rate = 0.92;
-      utterance.pitch = 1.0;
-
-      const voices = window.speechSynthesis.getVoices();
-      const targetLangPrefix = lang === 'ta' ? 'ta' : 'en';
-      const matchingVoice =
-        voices.find((v) =>
-          v.lang.toLowerCase().startsWith(lang === 'ta' ? 'ta-in' : 'en-in')
-        ) || voices.find((v) => v.lang.toLowerCase().startsWith(targetLangPrefix));
-      if (matchingVoice) {
-        utterance.voice = matchingVoice;
-      }
-
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
-
-      window.speechSynthesis.speak(utterance);
+    (textToSpeak, id = 'modal-cart-summary') => {
+      speakGlobal(textToSpeak, lang, id);
     },
     [lang]
   );
@@ -175,18 +153,14 @@ export function AddMoreOrCheckoutModal({
         `EE-${Math.floor(100000 + Math.random() * 900000)}`
       );
       const timer = setTimeout(() => {
-        speakText(buildSpokenSummary());
+        speakGlobal(buildSpokenSummary(), lang, 'modal-cart-summary');
       }, 350);
       return () => {
         clearTimeout(timer);
-        if ('speechSynthesis' in window) {
-          window.speechSynthesis.cancel();
-        }
+        stopAllSpeech();
       };
     } else {
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
+      stopAllSpeech();
       setIsSpeaking(false);
       if (recognitionRef.current) {
         try {
@@ -202,7 +176,7 @@ export function AddMoreOrCheckoutModal({
     if (e) e.preventDefault();
     const trimmed = addMoreText.trim();
     if (trimmed) {
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      stopAllSpeech();
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
@@ -214,7 +188,7 @@ export function AddMoreOrCheckoutModal({
 
   // When user clicks "Proceed to Checkout" -> Show Fake Order Success Screen & notify backend!
   const handleCheckoutClick = () => {
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    stopAllSpeech();
     setIsOrderSuccess(true);
 
     // Announce fake order success aloud in English or Tamil
@@ -222,22 +196,19 @@ export function AddMoreOrCheckoutModal({
       lang === 'ta'
         ? `வாழ்த்துக்கள்! உங்கள் ஆர்டர் வெற்றிகரமாக பதிவு செய்யப்பட்டது. ஆர்டர் எண் ${fakeOrderId}. உங்கள் பொருட்கள் 10 நிமிடங்களில் டெலிவரி செய்யப்படும்.`
         : `Congratulations! Your order has been placed successfully. Order ID ${fakeOrderId}. Your items will be delivered in 10 minutes.`;
-    speakText(successSpeech);
+    speakGlobal(successSpeech, lang, 'modal-order-success');
   };
 
   // Close the fake order receipt and finish the flow
   const handleFinishOrder = () => {
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    stopAllSpeech();
     setIsOrderSuccess(false);
     onCheckout();
   };
 
   // Built-in voice recognition for "Add More Items"
   const toggleVoiceInput = () => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      setIsSpeaking(false);
-    }
+    stopAllSpeech();
 
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -294,30 +265,15 @@ export function AddMoreOrCheckoutModal({
           <div className="text-center space-y-5">
             {/* Top Speaker Row */}
             <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={toggleReadAloud}
-                className={`min-h-[48px] px-4 py-2 rounded-2xl font-extrabold text-sm flex items-center gap-2 border-2 transition-all ${isSpeaking
-                    ? isHighContrast
-                      ? 'bg-yellow-300 text-black border-white animate-pulse'
-                      : 'bg-amber-500 text-white border-amber-600 animate-pulse'
-                    : isHighContrast
-                      ? 'bg-zinc-900 text-yellow-300 border-yellow-400'
-                      : 'bg-emerald-50 text-emerald-900 border-emerald-400'
-                  }`}
-              >
-                {isSpeaking ? (
-                  <>
-                    <VolumeX className="w-5 h-5" />
-                    <span>{lang === 'ta' ? 'நிறுத்து' : 'Stop'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Volume2 className="w-5 h-5" />
-                    <span>{lang === 'ta' ? 'சத்தமாகக் கேட்க' : 'Listen'}</span>
-                  </>
-                )}
-              </button>
+              <SpeakButton
+                text={buildSpokenSummary()}
+                lang={lang}
+                id="modal-order-success"
+                isHighContrast={isHighContrast}
+                size="md"
+                idleLabel={lang === 'ta' ? 'சத்தமாகக் கேட்க' : 'Listen'}
+                activeLabel={lang === 'ta' ? 'நிறுத்து' : 'Stop'}
+              />
             </div>
 
             {/* Celebration Icon */}
@@ -478,39 +434,15 @@ export function AddMoreOrCheckoutModal({
               </div>
 
               {/* Prominent Read-Aloud Speaker Button */}
-              <button
-                type="button"
-                onClick={toggleReadAloud}
-                className={`shrink-0 min-h-[56px] px-4 py-3 rounded-2xl font-extrabold text-sm sm:text-base flex items-center gap-2 border-2 transition-all shadow-md active:scale-95 ${isSpeaking
-                    ? isHighContrast
-                      ? 'bg-yellow-300 text-black border-white animate-pulse'
-                      : 'bg-amber-500 text-white border-amber-600 animate-pulse'
-                    : isHighContrast
-                      ? 'bg-zinc-900 text-yellow-300 border-yellow-400 hover:bg-zinc-800'
-                      : 'bg-emerald-50 text-emerald-900 border-emerald-400 hover:bg-emerald-100'
-                  }`}
-                aria-label={
-                  isSpeaking
-                    ? lang === 'ta'
-                      ? 'வாசிப்பதை நிறுத்து'
-                      : 'Stop reading aloud'
-                    : lang === 'ta'
-                      ? 'கூடையை சத்தமாக வாசி'
-                      : 'Read basket aloud'
-                }
-              >
-                {isSpeaking ? (
-                  <>
-                    <VolumeX className="w-6 h-6 shrink-0" />
-                    <span>{lang === 'ta' ? 'நிறுத்து' : 'Stop'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Volume2 className="w-6 h-6 shrink-0" />
-                    <span>{lang === 'ta' ? 'கேட்க' : 'Listen'}</span>
-                  </>
-                )}
-              </button>
+              <SpeakButton
+                text={buildSpokenSummary()}
+                lang={lang}
+                id="modal-cart-summary"
+                isHighContrast={isHighContrast}
+                size="md"
+                idleLabel={lang === 'ta' ? 'கேட்க' : 'Listen'}
+                activeLabel={lang === 'ta' ? 'நிறுத்து' : 'Stop'}
+              />
             </div>
 
             {/* Cart Summary List */}
@@ -609,21 +541,20 @@ export function AddMoreOrCheckoutModal({
                           </span>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => speakSingleItem(item, idx)}
-                          className={`p-2 rounded-xl border transition-all ${isHighContrast
-                              ? 'bg-zinc-900 text-yellow-300 border-yellow-400/50 hover:bg-zinc-800'
-                              : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-emerald-50 hover:text-emerald-800'
-                            }`}
-                          aria-label={
+                        {/* Mini read aloud button */}
+                        <SpeakButton
+                          text={
                             lang === 'ta'
-                              ? `${item.name} விவரத்தைக் கேட்க`
-                              : `Listen to ${item.name}`
+                              ? `பொருள் ${idx + 1}: ${item.name}. ${item.weight ? `அளவு ${item.weight}. ` : ''}${item.qty > 1 ? `எண்ணிக்கை ${item.qty}. ` : ''}விலை ${String(item.price || '').replace('₹', '')} ரூபாய்.`
+                              : `Item ${idx + 1}: ${item.name}. ${item.weight ? `Weight ${item.weight}. ` : ''}${item.qty > 1 ? `Quantity ${item.qty}. ` : ''}Price ${item.price || 'not available'}.`
                           }
-                        >
-                          <Volume2 className="w-5 h-5" />
-                        </button>
+                          lang={lang}
+                          id={`modal-item-${idx}-${item.name?.replace(/\s+/g, '-')}`}
+                          isHighContrast={isHighContrast}
+                          size="sm"
+                          showLabel={false}
+                          title={lang === 'ta' ? `${item.name} விவரத்தைக் கேட்க` : `Listen to ${item.name}`}
+                        />
                       </div>
                     </div>
                   ))}

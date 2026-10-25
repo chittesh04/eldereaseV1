@@ -14,6 +14,7 @@ import { useOrderState } from './hooks/useOrderState';
 import { PurchaseConfirmationModal } from './components/PurchaseConfirmationModal';
 import { QueueProgressBanner } from './components/QueueProgressBanner';
 import { AddMoreOrCheckoutModal } from './components/AddMoreOrCheckoutModal';
+import { speakGlobal, stopAllSpeech } from './components/SpeakButton';
 
 export function App() {
   // Language State ('en' | 'ta')
@@ -138,7 +139,7 @@ export function App() {
     // Read aloud if TTS is enabled (skip step progress to avoid voice clutter)
     if (data.sender !== 'user' && ttsEnabled && data.action !== 'step_progress') {
       setSpeakingMessageId(newMsg.id);
-      speak(data.text, false, data.lang || lang);
+      speakGlobal(data.text, data.lang || lang, `msg-${newMsg.id}`);
     }
 
     // Dispatch to order state machine based on backend action
@@ -257,6 +258,7 @@ export function App() {
 
   const actuallySendMessage = (textToSend) => {
     // Stop ongoing speech when user speaks/sends
+    stopAllSpeech();
     stopTTS();
 
     // Gotcha 1: Register user interaction to unlock audio
@@ -312,6 +314,7 @@ export function App() {
   };
 
   const handleResetChat = () => {
+    stopAllSpeech();
     stopTTS();
     setMessages([
       {
@@ -326,11 +329,11 @@ export function App() {
     orderDispatch({ type: 'RESET' });
   };
 
-  const handleManualSpeak = (text) => {
+  const handleManualSpeak = (text, id = 'manual-speak') => {
     if (!hasInteracted) {
       unlockAudio();
     }
-    speak(text, true, lang);
+    speakGlobal(text, lang, id);
   };
 
   return (
@@ -347,7 +350,10 @@ export function App() {
         isHighContrast={isHighContrast}
         setIsHighContrast={setIsHighContrast}
         ttsEnabled={ttsEnabled}
-        setTtsEnabled={setTtsEnabled}
+        setTtsEnabled={(val) => {
+          setTtsEnabled(val);
+          if (!val) stopAllSpeech();
+        }}
         onResetChat={handleResetChat}
         onOpenHelp={() => setIsHelpOpen(true)}
       />
@@ -395,7 +401,10 @@ export function App() {
         isWaitingForPhone={isWaitingForPhone}
         defaultPhone={defaultPhone}
         isListening={isListening}
-        onStartVoice={startListening}
+        onStartVoice={() => {
+          stopAllSpeech();
+          startListening();
+        }}
         onStopVoice={stopListening}
         isVoiceSupported={isVoiceSupported}
         voiceError={voiceError}

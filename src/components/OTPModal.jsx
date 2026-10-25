@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Delete, Check, X, ShieldCheck } from 'lucide-react';
+import { SpeakButton, stopAllSpeech } from './SpeakButton';
 import { translations } from '../constants/translations';
 
 export function OTPModal({
@@ -23,6 +24,8 @@ export function OTPModal({
       setTimeout(() => {
         hiddenInputRef.current?.focus();
       }, 100);
+    } else {
+      stopAllSpeech();
     }
   }, [isOpen]);
 
@@ -31,14 +34,23 @@ export function OTPModal({
     if (!isOpen) return;
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
+        stopAllSpeech();
         onClose();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      stopAllSpeech();
+    };
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
+
+  const handleClose = () => {
+    stopAllSpeech();
+    onClose();
+  };
 
   const handleDigitClick = (num) => {
     if (otpDigits.length < otpLength) {
@@ -46,6 +58,7 @@ export function OTPModal({
       setOtpDigits(nextOtp);
       if (nextOtp.length === otpLength && !submitting) {
         setSubmitting(true);
+        stopAllSpeech();
         setTimeout(() => {
           onSubmitOtp(nextOtp);
         }, 200);
@@ -65,6 +78,7 @@ export function OTPModal({
     if (e) e.preventDefault();
     if (otpDigits.length > 0 && !submitting) {
       setSubmitting(true);
+      stopAllSpeech();
       onSubmitOtp(otpDigits);
     }
   };
@@ -75,7 +89,7 @@ export function OTPModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="otp-modal-title"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
     >
       <div 
         className={`w-full max-w-md rounded-3xl p-6 shadow-2xl border-4 transition-all ${
@@ -101,7 +115,7 @@ export function OTPModal({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="touch-target p-2 rounded-xl border border-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
             aria-label="Close OTP keypad"
           >
@@ -109,10 +123,19 @@ export function OTPModal({
           </button>
         </div>
 
-        {/* Prompt description */}
-        <p className="mt-4 text-base md:text-lg font-bold leading-snug">
-          {promptText || t.otpDefaultPrompt}
-        </p>
+        {/* Prompt description with SpeakButton */}
+        <div className="flex items-center justify-between gap-3 mt-4">
+          <p className="text-base md:text-lg font-bold leading-snug flex-1">
+            {promptText || t.otpDefaultPrompt}
+          </p>
+          <SpeakButton
+            text={promptText || t.otpDefaultPrompt}
+            lang={lang}
+            id="modal-otp-prompt"
+            isHighContrast={isHighContrast}
+            size="sm"
+          />
+        </div>
 
         {/* Hidden input for mobile native SMS 1-tap autofill (Gotcha 3) */}
         <input

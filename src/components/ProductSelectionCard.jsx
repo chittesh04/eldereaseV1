@@ -1,5 +1,6 @@
-import React from 'react';
-import { ShoppingCart, Check, Sparkles } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { ShoppingCart } from 'lucide-react';
+import { SpeakButton } from './SpeakButton';
 import { translations } from '../constants/translations';
 
 export function ProductSelectionCard({
@@ -10,6 +11,21 @@ export function ProductSelectionCard({
 }) {
   const t = translations[lang] || translations.en;
 
+  const allOptionsText = useMemo(() => {
+    if (!results || results.length === 0) return '';
+    return results
+      .map((product, idx) => {
+        const itemNumber = idx + 1;
+        const name = product.name_localized || product.name;
+        const weight = product.weight ? `, ${product.weight}` : '';
+        if (lang === 'ta') {
+          return `விருப்பம் ${itemNumber}: ${name}, விலை ${product.price} ரூபாய்${weight}`;
+        }
+        return `Option ${itemNumber}: ${name}, price ${product.price} rupees${weight}`;
+      })
+      .join('. ');
+  }, [results, lang]);
+
   if (!results || results.length === 0) return null;
 
   return (
@@ -18,11 +34,23 @@ export function ProductSelectionCard({
       role="region"
       aria-label={lang === 'ta' ? "தயாரிப்பு பட்டியல்" : "Product search results"}
     >
-      <div className="flex items-center justify-between text-xs md:text-sm font-extrabold opacity-80 mb-1">
-        <span>{lang === 'ta' ? "தேர்ந்தெடுக்க வேண்டிய பொருள் (1-5):" : "Tap an item or say the number (1-5):"}</span>
-        <span className="text-blue-700 dark:text-yellow-400 font-black">
-          {results.length} {lang === 'ta' ? "பொருட்கள்" : "items found"}
-        </span>
+      {/* Header with Title and "Read All Options / Stop" SpeakButton */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs md:text-sm font-extrabold opacity-90 mb-1">
+        <div className="flex items-center gap-2">
+          <span>{lang === 'ta' ? "தேர்ந்தெடுக்க வேண்டிய பொருள் (1-5):" : "Tap an item or say the number (1-5):"}</span>
+          <span className="text-blue-700 dark:text-yellow-400 font-black">
+            ({results.length} {lang === 'ta' ? "பொருட்கள்" : "items"})
+          </span>
+        </div>
+        <SpeakButton
+          text={allOptionsText}
+          lang={lang}
+          id="read-all-search-options"
+          isHighContrast={isHighContrast}
+          size="sm"
+          idleLabel={lang === 'ta' ? 'அனைத்தையும் கேட்க' : 'Read All Options'}
+          activeLabel={lang === 'ta' ? 'நிறுத்து' : 'Stop'}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-2.5">
@@ -30,14 +58,25 @@ export function ProductSelectionCard({
           const itemNumber = idx + 1;
           const qtyNeeded = product.qty_needed || 1;
           const weight = product.weight || '';
+          const itemSpeech = lang === 'ta'
+            ? `விருப்பம் ${itemNumber}: ${product.name_localized || product.name}, விலை ${product.price} ரூபாய்${weight ? `, ${weight}` : ''}${qtyNeeded > 1 ? `, ${qtyNeeded} எண்ணிக்கை` : ''}`
+            : `Option ${itemNumber}: ${product.name_localized || product.name}, price ${product.price} rupees${weight ? `, ${weight}` : ''}${qtyNeeded > 1 ? `, ${qtyNeeded} units` : ''}`;
+
           return (
-            <button
+            <div
               key={idx}
-              type="button"
+              role="button"
+              tabIndex={0}
               onClick={() => onSelectProduct(itemNumber, product.name)}
-              className={`w-full touch-target p-3.5 md:p-4 rounded-2xl border-2 flex items-center justify-between gap-3 text-left transition-all shadow-sm active:scale-[0.99] ${
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelectProduct(itemNumber, product.name);
+                }
+              }}
+              className={`w-full touch-target p-3.5 md:p-4 rounded-2xl border-2 flex items-center justify-between gap-3 text-left transition-all shadow-sm active:scale-[0.99] cursor-pointer ${
                 isHighContrast
-                  ? 'bg-zinc-900 border-yellow-400 text-yellow-300 hover:bg-yellow-400 hover:text-black'
+                  ? 'bg-zinc-900 border-yellow-400 text-yellow-300 hover:bg-zinc-800 hover:border-yellow-300'
                   : 'bg-slate-50 border-slate-300 text-slate-900 hover:bg-blue-50 hover:border-blue-500'
               }`}
               aria-label={`Select item ${itemNumber}: ${product.name_localized || product.name}, price ${product.price}${weight ? `, weight ${weight}` : ''}${qtyNeeded > 1 ? `, ${qtyNeeded} units needed` : ''}`}
@@ -88,17 +127,28 @@ export function ProductSelectionCard({
                 </div>
               </div>
 
-              {/* Add Button with quantity badge */}
-              <div className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-xl font-black text-sm bg-emerald-600 hover:bg-emerald-700 text-white shadow relative">
-                <ShoppingCart className="w-4 h-4" />
-                <span>{lang === 'ta' ? 'சேர்' : 'Add'}</span>
-                {qtyNeeded > 1 && (
-                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-black w-5 h-5 rounded-full flex items-center justify-center shadow-md">
-                    {qtyNeeded}
-                  </span>
-                )}
+              {/* Action cluster: SpeakButton + Add Button */}
+              <div className="shrink-0 flex items-center gap-2">
+                <SpeakButton
+                  text={itemSpeech}
+                  lang={lang}
+                  id={`prod-${idx}-${product.name?.replace(/\s+/g, '-')}`}
+                  isHighContrast={isHighContrast}
+                  size="sm"
+                  title={lang === 'ta' ? `${product.name_localized || product.name} விவரத்தைக் கேட்க` : `Listen to ${product.name}`}
+                />
+
+                <div className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-xl font-black text-sm bg-emerald-600 hover:bg-emerald-700 text-white shadow relative">
+                  <ShoppingCart className="w-4 h-4" />
+                  <span>{lang === 'ta' ? 'சேர்' : 'Add'}</span>
+                  {qtyNeeded > 1 && (
+                    <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-black w-5 h-5 rounded-full flex items-center justify-center shadow-md">
+                      {qtyNeeded}
+                    </span>
+                  )}
+                </div>
               </div>
-            </button>
+            </div>
           );
         })}
       </div>

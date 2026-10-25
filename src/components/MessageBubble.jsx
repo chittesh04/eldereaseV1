@@ -1,8 +1,9 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Volume2, CheckCircle2, ShoppingCart, Search, Lock, User, Bot, Sparkles, Terminal, Phone } from 'lucide-react';
+import { CheckCircle2, ShoppingCart, Search, Lock, User, Bot, Sparkles, Terminal, Phone } from 'lucide-react';
 import { ProductSelectionCard } from './ProductSelectionCard';
+import { SpeakButton } from './SpeakButton';
 import { translations } from '../constants/translations';
 
 export function MessageBubble({
@@ -146,21 +147,15 @@ export function MessageBubble({
               {message.timestamp || t.justNow}
             </span>
 
-            {/* Read Aloud Button for Bot messages */}
-            {isBot && onSpeak && (
-              <button
-                onClick={() => onSpeak(message.text)}
-                className={`touch-target inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-bold text-xs transition-colors ${
-                  isHighContrast
-                    ? 'bg-yellow-400 text-black border-yellow-300 hover:bg-yellow-300'
-                    : 'bg-blue-50 text-blue-900 border-blue-200 hover:bg-blue-100'
-                }`}
-                title={t.listenButton}
-                aria-label={`${t.listenButton}: ${message.text.substring(0, 40)}`}
-              >
-                <Volume2 className={`w-4 h-4 ${isCurrentlySpeaking ? 'animate-bounce text-blue-700' : ''}`} />
-                <span>{isCurrentlySpeaking ? t.readingButton : t.listenButton}</span>
-              </button>
+            {/* Read Aloud Button for Bot messages with Listen <-> Stop toggle */}
+            {isBot && (
+              <SpeakButton
+                text={message.text}
+                lang={lang}
+                id={`msg-${message.id}`}
+                isHighContrast={isHighContrast}
+                size="sm"
+              />
             )}
           </div>
 
