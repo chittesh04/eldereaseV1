@@ -326,6 +326,8 @@ export function AddMoreOrCheckoutModal({
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [dynamicTranslations, setDynamicTranslations] = useState({});
   const recognitionRef = useRef(null);
+  const baseTextRef = useRef('');
+  const micStartTimeoutRef = useRef(null);
   const wasOpenRef = useRef(false);
 
   // Background runtime translation to guarantee 100% Tamil translation (same as top 5 suggestions)
@@ -502,11 +504,16 @@ export function AddMoreOrCheckoutModal({
       wasOpenRef.current = false;
       stopAllSpeech();
       setIsSpeaking(false);
+      if (micStartTimeoutRef.current) {
+        clearTimeout(micStartTimeoutRef.current);
+        micStartTimeoutRef.current = null;
+      }
       if (recognitionRef.current) {
         try {
-          recognitionRef.current.stop();
+          recognitionRef.current.abort();
         } catch (_) { }
       }
+      setIsListening(false);
     }
   }, [isOpen]); // Only run when modal open state toggles
 
@@ -516,6 +523,15 @@ export function AddMoreOrCheckoutModal({
       if (wasOpenRef.current) {
         wasOpenRef.current = false;
         stopAllSpeech();
+      }
+      if (micStartTimeoutRef.current) {
+        clearTimeout(micStartTimeoutRef.current);
+        micStartTimeoutRef.current = null;
+      }
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch (_) { }
       }
     };
   }, []);
@@ -527,11 +543,16 @@ export function AddMoreOrCheckoutModal({
     const trimmed = addMoreText.trim();
     if (trimmed) {
       stopAllSpeech();
+      if (micStartTimeoutRef.current) {
+        clearTimeout(micStartTimeoutRef.current);
+        micStartTimeoutRef.current = null;
+      }
       if (recognitionRef.current) {
         try {
-          recognitionRef.current.stop();
+          recognitionRef.current.abort();
         } catch (_) { }
       }
+      setIsListening(false);
       onAddMore(trimmed);
     }
   };
@@ -554,43 +575,113 @@ export function AddMoreOrCheckoutModal({
     onCheckout();
   };
 
-  // Built-in voice recognition for "Add More Items"
+  // Built-in voice recognition for "Add More Items" (Exact configuration matching main page)
   const toggleVoiceInput = () => {
-    stopAllSpeech();
+    // 1. If currently listening, toggle off
+    if (isListening) {
+      if (micStartTimeoutRef.current) {
+        clearTimeout(micStartTimeoutRef.current);
+        micStartTimeoutRef.current = null;
+      }
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (_) { }
+      }
+      setIsListening(false);
+      return;
+    }
 
+    // 2. Check browser support
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       alert(
         lang === 'ta'
-          ? 'உங்கள் உலாவியில் குரல் உள்ளீடு ஆதரிக்கப்படவில்லை.'
-          : 'Voice input is not supported in this browser.'
+          ? 'உங்கள் உலாவியில் குரல் உள்ளீடு ஆதரிக்கப்படவில்லை. Google Chrome அல்லது Edge உலாவியைப் பயன்படுத்தவும்.'
+          : 'Voice input is not supported in this browser. Please use Google Chrome or Microsoft Edge.'
       );
       return;
     }
 
-    if (isListening && recognitionRef.current) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-      return;
+    // 3. Prevent TTS Speaker Echo: cancel any active speech synthesis
+    const wasSpeaking =
+      ('speechSynthesis' in window && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) ||
+      isSpeaking;
+    stopAllSpeech();
+    setIsSpeaking(false);
+
+    // Save whatever text is already in the input box before turning mic on
+    baseTextRef.current = addMoreText.trim();
+
+    // 4. Clean up any previous recognition instance
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch (_) { }
+      recognitionRef.current = null;
     }
 
     const recognition = new SpeechRecognition();
     recognition.lang = lang === 'ta' ? 'ta-IN' : 'en-IN';
-    recognition.interimResults = false;
+    recognition.continuous = true;
+    recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
-    recognition.onstart = () => setIsListening(true);
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
     recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setAddMoreText((prev) => (prev ? `${prev}, ${transcript}` : transcript));
+      let finalTranscript = '';
+      let interimTranscript = '';
+
+      for (let i = 0; i < event.results.length; i++) {
+        const resultItem = event.results[i];
+        const text = resultItem[0]?.transcript || '';
+        if (resultItem.isFinal) {
+          finalTranscript += text + ' ';
+        } else {
+          interimTranscript += text;
+        }
+      }
+
+      const combinedSpoken = (finalTranscript + interimTranscript).trim();
+      if (combinedSpoken) {
+        if (baseTextRef.current) {
+          const separator = baseTextRef.current.endsWith(',') ? ' ' : ', ';
+          setAddMoreText(`${baseTextRef.current}${separator}${combinedSpoken}`);
+        } else {
+          setAddMoreText(combinedSpoken);
+        }
+      }
+    };
+
+    recognition.onerror = (event) => {
+      console.warn('Modal speech recognition error:', event.error);
+      if (event.error !== 'no-speech') {
+        setIsListening(false);
+      }
+    };
+
+    recognition.onend = () => {
       setIsListening(false);
     };
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
 
     recognitionRef.current = recognition;
-    recognition.start();
+
+    // Wait 200ms before calling recognition.start() if TTS was speaking to avoid speaker echo
+    const delay = wasSpeaking ? 200 : 50;
+    if (micStartTimeoutRef.current) {
+      clearTimeout(micStartTimeoutRef.current);
+    }
+    micStartTimeoutRef.current = setTimeout(() => {
+      try {
+        recognition.start();
+      } catch (err) {
+        console.warn('Modal speech recognition start failed:', err);
+      }
+    }, delay);
   };
 
   return (
@@ -956,12 +1047,8 @@ export function AddMoreOrCheckoutModal({
                 <button
                   type="button"
                   onClick={() => {
+                    stopAllSpeech();
                     setShowAddMoreInput(true);
-                    speakText(
-                      lang === 'ta'
-                        ? 'எந்தப் பொருட்களைச் சேர்க்க வேண்டும் என்று சொல்லுங்கள் அல்லது தட்டச்சு செய்யுங்கள்.'
-                        : 'Please speak or type the additional items you would like to add.'
-                    );
                   }}
                   className={`w-full min-h-[64px] px-6 py-4 rounded-2xl font-black text-lg sm:text-xl flex items-center justify-center gap-3 transition-all shadow-sm border-2 active:scale-[0.99] ${isHighContrast
                       ? 'bg-zinc-900 text-yellow-300 border-yellow-400 hover:bg-zinc-800'
@@ -1024,6 +1111,8 @@ export function AddMoreOrCheckoutModal({
                   <button
                     type="button"
                     onClick={toggleVoiceInput}
+                    aria-label={isListening ? 'Stop microphone' : 'Start microphone'}
+                    title={isListening ? (lang === 'ta' ? 'மைக்கை நிறுத்த தட்டவும்' : 'Click to stop') : (lang === 'ta' ? 'குரல் உள்ளீட்டிற்கு தட்டவும்' : 'Click to speak')}
                     className={`px-5 rounded-2xl border-2 flex items-center justify-center transition-all shrink-0 ${isListening
                         ? 'bg-red-600 text-white border-red-700 animate-pulse'
                         : isHighContrast
@@ -1038,6 +1127,18 @@ export function AddMoreOrCheckoutModal({
                     )}
                   </button>
                 </div>
+
+                {/* Live Listening Visual Indicator */}
+                {isListening && (
+                  <div className="flex items-center gap-2 text-sm font-black px-3.5 py-2 rounded-xl bg-red-100 border-2 border-red-400 text-red-900 animate-pulse">
+                    <span className="w-3 h-3 rounded-full bg-red-600 animate-ping"></span>
+                    <span>
+                      {lang === 'ta'
+                        ? '🎤 பேசவும்... உங்கள் குரல் கேட்கப்படுகிறது'
+                        : '🎤 Listening live... Speak your items'}
+                    </span>
+                  </div>
+                )}
 
                 <button
                   type="submit"

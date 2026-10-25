@@ -355,6 +355,13 @@ export function App() {
     }
   }, [transcript]);
 
+  // Ensure main page microphone is stopped when Add More or Checkout modal is open
+  useEffect(() => {
+    if (isAddMoreOrCheckoutOpen && isListening) {
+      stopListening();
+    }
+  }, [isAddMoreOrCheckoutOpen, isListening, stopListening]);
+
   // Sending a User Message (via Text or Voice) - STRICTLY LIVE TO BACKEND
   const handleSendMessage = (textToSend) => {
     if (!textToSend.trim()) return;
