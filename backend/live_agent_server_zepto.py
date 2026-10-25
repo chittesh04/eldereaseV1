@@ -1167,7 +1167,7 @@ class AgentSession:
 
         logger.warning("Max steps reached for item '%s'", query)
         return None
-        
+
     def _run_vlm_navigation(self, page, goal: str, address: str, phone: str, max_steps: int = 15):
         """Run the VLM action loop for location setup & checkout tasks."""
         step = 1
@@ -1499,19 +1499,36 @@ class AgentSession:
                         self.item_queue = list(new_items)
                         logger.info("User added %d more items: %s", len(new_items), new_items)
 
-                # =============================================
-                # PHASE D: Unified Cart & Checkout
+
+# =============================================
+                # PHASE D: Simulated Order Success (College Project Mode)
                 # =============================================
                 if self.is_active:
                     if self.phase is not None:
-                        self.phase = SessionPhase.CHECKOUT
+                        self.phase = SessionPhase.SUCCESS
 
-                    checkout_goal = (
-                        "Navigate to the cart and click Proceed/Checkout. "
-                        "If a login screen appears, use 'input_phone' for the mobile number "
-                        "and 'input_otp' for the OTP. Complete the checkout process."
+                    order_id = f"EE-{int(time.time()) % 1000000}"
+                    items_summary = ", ".join(
+                        f"{c['name']} (x{c.get('qty', 1)})" for c in self.cart_summary
+                    ) or "Groceries"
+
+                    summary_msg = (
+                        f"**ORDER CONFIRMED!** (Order ID: #{order_id})\n\n"
+                        f"Items Ordered: {items_summary}\n"
+                        f"Estimated Delivery: **10 Minutes** (Pay on Delivery)"
                     )
-                    self._run_vlm_navigation(page, checkout_goal, address, phone, max_steps=20)
+
+                    self.send_localized({
+                        "sender": "bot",
+                        "action": "order_success",
+                        "text": summary_msg,
+                        "timestamp": datetime.now().strftime("%I:%M %p")
+                    })
+                    logger.info("Simulated order #%s completed successfully for items: %s", order_id, items_summary)
+                    time.sleep(2)
+
+
+
 
             finally:
                 if browser:

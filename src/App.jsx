@@ -36,7 +36,7 @@ export function App() {
   ]);
 
   const [inputText, setInputText] = useState('');
-  
+
   // Order state machine (replaces boolean soup)
   const {
     phase,
@@ -92,7 +92,7 @@ export function App() {
   const handleToggleLanguage = () => {
     const nextLang = lang === 'en' ? 'ta' : 'en';
     setLang(nextLang);
-    
+
     if (messages.length <= 1) {
       setMessages([
         {
@@ -108,13 +108,13 @@ export function App() {
   };
 
   // TTS Hook (Gotcha 1: Audio Autoplay Gate + Tamil Voice Integration)
-  const { 
-    speak, 
-    stop: stopTTS, 
-    isSpeaking, 
-    hasInteracted, 
-    unlockAudio, 
-  } = useSpeechSynthesis({ 
+  const {
+    speak,
+    stop: stopTTS,
+    isSpeaking,
+    hasInteracted,
+    unlockAudio,
+  } = useSpeechSynthesis({
     enabled: ttsEnabled,
     lang: lang,
     rate: 0.9
@@ -238,7 +238,7 @@ export function App() {
 
     const lowerText = textToSend.toLowerCase();
     let targetUrl = wsUrl;
-    
+
     if (lowerText.includes('zepto')) {
       targetUrl = 'ws://localhost:8001/ws';
     } else if (lowerText.includes('blinkit')) {
@@ -334,10 +334,9 @@ export function App() {
   };
 
   return (
-    <div className={`min-h-screen flex flex-col transition-colors ${
-      isHighContrast ? 'bg-black text-yellow-300' : 'bg-slate-50 text-slate-900'
-    }`}>
-      
+    <div className={`min-h-screen flex flex-col transition-colors ${isHighContrast ? 'bg-black text-yellow-300' : 'bg-slate-50 text-slate-900'
+      }`}>
+
       {/* Header */}
       <Header
         lang={lang}
