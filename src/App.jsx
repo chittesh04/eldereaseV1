@@ -14,6 +14,7 @@ import { useOrderState } from './hooks/useOrderState';
 import { PurchaseConfirmationModal } from './components/PurchaseConfirmationModal';
 import { QueueProgressBanner } from './components/QueueProgressBanner';
 import { AddMoreOrCheckoutModal } from './components/AddMoreOrCheckoutModal';
+import { OrderSuccessModal } from './components/OrderSuccessModal';
 import { speakGlobal, stopAllSpeech, buildBotMessageSpeechText, unlockAudio } from './components/SpeakButton';
 import { findLocalizedNameFromMessages } from './utils/translator';
 
@@ -73,6 +74,8 @@ export function App() {
     return localStorage.getItem('elderease_tts') !== 'false';
   });
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isOrderSuccessModalOpen, setIsOrderSuccessModalOpen] = useState(false);
+  const [orderSuccessData, setOrderSuccessData] = useState(null);
   const [speakingMessageId, setSpeakingMessageId] = useState(null);
 
   // Persist language selection
@@ -149,6 +152,7 @@ export function App() {
       case 'input_phone':
         orderDispatch({ type: 'PHONE_REQUESTED', defaultPhone: data.default_phone || '' });
         break;
+      case 'input_otp':
       case 'otp_requested':
         orderDispatch({ type: 'OTP_REQUESTED', prompt: data.prompt, otpLength: data.otpLength });
         break;
@@ -158,14 +162,28 @@ export function App() {
       case 'show_results':
         orderDispatch({ type: 'PRODUCT_RESULTS' });
         break;
-      case 'order_success':
+      case 'order_success': {
         orderDispatch({ type: 'ORDER_SUCCESS' });
         try {
           confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
         } catch (err) {
           console.warn('Confetti error:', err);
         }
+        const parsedOrderId = data.order_id || (typeof data.text === 'string' && data.text.match(/Order ID: #?([A-Za-z0-9-]+)/i)?.[1]) || `EE-${Math.floor(100000 + Math.random() * 900000)}`;
+        const incomingCart = (data.cart_summary && data.cart_summary.length > 0) ? data.cart_summary : (data.extra?.cart_summary || cartSummary);
+        const enrichedCart = (incomingCart || []).map((c) => {
+          if (c.name_localized && /[\u0B80-\u0BFF]/.test(c.name_localized)) return c;
+          const matched = findLocalizedNameFromMessages(c.name, messagesRef.current);
+          return matched ? { ...c, name_localized: matched } : c;
+        });
+        setOrderSuccessData({
+          orderId: parsedOrderId,
+          cartSummary: enrichedCart,
+          text: data.text,
+        });
+        setIsOrderSuccessModalOpen(true);
         break;
+      }
       case 'step_progress':
         orderDispatch({ type: 'STEP_PROGRESS' });
         break;
@@ -420,6 +438,8 @@ export function App() {
   const handleResetChat = () => {
     stopAllSpeech();
     stopTTS();
+    setIsOrderSuccessModalOpen(false);
+    setOrderSuccessData(null);
     lastSpokenSignatureRef.current = null;
     lastSpokenActionRef.current = null;
     setMessages([
@@ -559,6 +579,17 @@ export function App() {
           orderDispatch({ type: 'CLOSE_ADD_MORE_MODAL' });
           orderDispatch({ type: 'USER_SENT_MESSAGE' });
         }}
+        isHighContrast={isHighContrast}
+      />
+
+      {/* Celebratory Order Placed Successfully Modal (College Project Demo Mode) */}
+      <OrderSuccessModal
+        isOpen={isOrderSuccessModalOpen}
+        onClose={() => setIsOrderSuccessModalOpen(false)}
+        orderId={orderSuccessData?.orderId}
+        cartSummary={orderSuccessData?.cartSummary || cartSummary}
+        messages={messages}
+        lang={lang}
         isHighContrast={isHighContrast}
       />
 

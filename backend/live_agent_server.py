@@ -1062,15 +1062,124 @@ class AgentSession:
         logger.warning("Max steps reached for item '%s'", query)
         return None
 
-    def _run_vlm_navigation(self, page, goal: str, address: str, phone: str, max_steps: int = 15):
+    def _type_otp_into_browser(self, page, otp_code: str, target_id: Optional[int] = None):
+        """Types OTP digits into page. Handles target_id, multi-box inputs, or keyboard type."""
+        typed = False
+        if target_id is not None:
+            try:
+                elem = page.locator(f'[custom-agent-id="{target_id}"]').first
+                if elem.is_visible():
+                    elem.click(timeout=2000)
+                    elem.press_sequentially(otp_code, delay=150)
+                    typed = True
+            except Exception as e:
+                logger.warning("Typing OTP by target_id failed: %s", e)
+
+        if not typed:
+            try:
+                single_boxes = page.locator('input[maxlength="1"], input[type="tel"], input[type="number"]')
+                count = single_boxes.count()
+                if count >= len(otp_code):
+                    for i in range(len(otp_code)):
+                        box = single_boxes.nth(i)
+                        box.click(timeout=1000)
+                        box.fill(otp_code[i])
+                        time.sleep(0.1)
+                    typed = True
+            except Exception as e:
+                logger.debug("Typing into multi-box OTP failed: %s", e)
+
+        if not typed:
+            otp_selectors = [
+                'input[name*="otp" i]',
+                'input[placeholder*="otp" i]',
+                'input[autocomplete*="one-time-code" i]',
+                'input[type="tel"]',
+                'input[type="number"]',
+                'input'
+            ]
+            for sel in otp_selectors:
+                try:
+                    inp = page.locator(sel).first
+                    if inp.is_visible():
+                        inp.click(timeout=2000)
+                        inp.fill("")
+                        inp.press_sequentially(otp_code, delay=150)
+                        typed = True
+                        break
+                except Exception:
+                    continue
+
+        if not typed:
+            try:
+                page.keyboard.type(otp_code, delay=150)
+                typed = True
+            except Exception as e:
+                logger.warning("Keyboard OTP typing fallback failed: %s", e)
+
+        return typed
+
+    def _run_vlm_navigation(self, page, goal: str, address: str, phone: str, max_steps: int = 15, stop_after_otp: bool = False):
         """Run the VLM action loop for navigation/checkout tasks (not item search).
         Handles click, type, scroll, done, input_phone, input_otp, ask_address, ask_user.
+        If stop_after_otp is True, halts immediately after entering OTP and triggers order_success.
         """
         step = 1
         last_error = None
         action_history = []
 
         while step <= max_steps and self.is_active:
+            # 1. Automatic OTP screen detection before ask_llm
+            phone_already_entered = any("Entered phone" in h for h in action_history)
+            otp_detected = False
+            try:
+                page_text_lower = page.inner_text("body").lower()
+                otp_triggers = [
+                    "otp verification", "enter otp", "enter the 4-digit", "enter the 6-digit",
+                    "sent to +91", "verification code", "enter 6 digit", "enter 4 digit",
+                    "resend otp", "seconds to auto-verify", "verify with otp"
+                ]
+                if any(trig in page_text_lower for trig in otp_triggers):
+                    otp_detected = True
+            except Exception:
+                pass
+
+            if otp_detected and (phone_already_entered or "otp" in goal.lower()):
+                logger.info("Automatic OTP screen detection triggered in Step %d!", step)
+                otp_len = 4
+                otp_code = self.wait_for_user_input(
+                    action="input_otp",
+                    text="**OTP Verification Required:** An SMS code was sent to your phone. Enter the code using the Big Keypad:",
+                    extra={"type": "otp", "prompt": "Please enter the OTP sent to your phone:", "otpLength": otp_len}
+                ).strip()
+
+                self._type_otp_into_browser(page, otp_code)
+                time.sleep(3)  # Wait 3s so examiner sees OTP typed and verified in browser
+                action_history.append(f"Step {step}: Auto-detected OTP screen and entered code")
+
+                if stop_after_otp or (self.phase is not None and self.phase == SessionPhase.CHECKOUT):
+                    order_id = f"EE-{int(time.time()) % 1000000}"
+                    items_summary = ", ".join(
+                        f"{c['name']} (x{c.get('qty', 1)})" for c in self.cart_summary
+                    ) or "Groceries"
+                    summary_msg = (
+                        f"**ORDER CONFIRMED!** (Order ID: #{order_id})\n\n"
+                        f"Items Ordered: {items_summary}\n"
+                        f"Estimated Delivery: **10 Minutes** (Pay on Delivery)"
+                    )
+                    self.send_localized({
+                        "sender": "bot",
+                        "action": "order_success",
+                        "text": summary_msg,
+                        "timestamp": datetime.now().strftime("%I:%M %p"),
+                        "order_id": order_id,
+                        "cart_summary": self.cart_summary
+                    })
+                    if self.phase is not None:
+                        self.phase = SessionPhase.SUCCESS
+                    logger.info("Demo order success emitted immediately after OTP: %s", order_id)
+                    break
+
             elements = get_interactive_elements(page)
             screenshot_bytes = page.screenshot(type="jpeg", quality=40)
 
@@ -1180,24 +1289,58 @@ class AgentSession:
                         page.keyboard.press("Enter")
                     except Exception as e:
                         logger.error("Failed to type phone: %s", e)
+                        try:
+                            tel_inp = page.locator('input[type="tel"], input[placeholder*="phone" i], input[placeholder*="mobile" i]').first
+                            if tel_inp.is_visible():
+                                tel_inp.fill("")
+                                tel_inp.press_sequentially(user_phone, delay=150)
+                                page.keyboard.press("Enter")
+                        except Exception:
+                            pass
+                    try:
+                        time.sleep(1)
+                        continue_btn = page.locator('button:has-text("Continue"), button:has-text("Get OTP"), button:has-text("Login"), button:has-text("Next"), button[type="submit"]').first
+                        if continue_btn.is_visible():
+                            continue_btn.click(timeout=2000)
+                    except Exception:
+                        pass
                     action_history.append(f"Step {step}: Entered phone number")
                     goal = "Phone entered. Now wait for the OTP page and use 'input_otp' when you see the OTP input fields."
 
                 elif action == "input_otp":
                     target_id = decision.get("id")
+                    otp_len = 4
                     otp_code = self.wait_for_user_input(
-                        action="ask_user",
+                        action="input_otp",
                         text="**OTP Verification Required:** An SMS code was sent to your phone. Enter the code using the Big Keypad:",
-                        extra={"type": "otp", "prompt": "Please enter the OTP sent to your phone:", "otpLength": 4}
+                        extra={"type": "otp", "prompt": "Please enter the OTP sent to your phone:", "otpLength": otp_len}
                     ).strip()
-                    try:
-                        input_field = page.locator(f'[custom-agent-id="{target_id}"]').first
-                        input_field.click()
-                        input_field.press_sequentially(otp_code, delay=150)
-                    except Exception as e:
-                        logger.warning("OTP input failed: %s", e)
-                    time.sleep(4)
+                    self._type_otp_into_browser(page, otp_code, target_id=target_id)
+                    time.sleep(3)  # Wait 3s so examiner sees OTP typed and verified
                     action_history.append(f"Step {step}: User entered OTP")
+
+                    if stop_after_otp or (self.phase is not None and self.phase == SessionPhase.CHECKOUT):
+                        order_id = f"EE-{int(time.time()) % 1000000}"
+                        items_summary = ", ".join(
+                            f"{c['name']} (x{c.get('qty', 1)})" for c in self.cart_summary
+                        ) or "Groceries"
+                        summary_msg = (
+                            f"**ORDER CONFIRMED!** (Order ID: #{order_id})\n\n"
+                            f"Items Ordered: {items_summary}\n"
+                            f"Estimated Delivery: **10 Minutes** (Pay on Delivery)"
+                        )
+                        self.send_localized({
+                            "sender": "bot",
+                            "action": "order_success",
+                            "text": summary_msg,
+                            "timestamp": datetime.now().strftime("%I:%M %p"),
+                            "order_id": order_id,
+                            "cart_summary": self.cart_summary
+                        })
+                        if self.phase is not None:
+                            self.phase = SessionPhase.SUCCESS
+                        logger.info("Demo order success emitted immediately after OTP: %s", order_id)
+                        break
 
                 elif action == "show_results":
                     # During navigation/checkout, ignore show_results - we're past shopping
@@ -1403,31 +1546,76 @@ class AgentSession:
                         # Loop back to Phase B
 
 # =============================================
-                # PHASE D: Simulated Order Success (College Project Mode)
+                # PHASE D: Cart -> Phone -> OTP -> Simulated Order Success
                 # =============================================
                 if self.is_active:
                     if self.phase is not None:
-                        self.phase = SessionPhase.SUCCESS
-
-                    order_id = f"EE-{int(time.time()) % 1000000}"
-                    items_summary = ", ".join(
-                        f"{c['name']} (x{c.get('qty', 1)})" for c in self.cart_summary
-                    ) or "Groceries"
-
-                    summary_msg = (
-                        f"**ORDER CONFIRMED!** (Order ID: #{order_id})\n\n"
-                        f"Items Ordered: {items_summary}\n"
-                        f"Estimated Delivery: **10 Minutes** (Pay on Delivery)"
-                    )
+                        self.phase = SessionPhase.CHECKOUT
 
                     self.send_localized({
                         "sender": "bot",
-                        "action": "order_success",
-                        "text": summary_msg,
+                        "action": "step_progress",
+                        "step": "checkout",
+                        "text": "**Opening Cart to begin checkout...**",
                         "timestamp": datetime.now().strftime("%I:%M %p")
                     })
-                    logger.info("Simulated order #%s completed successfully for items: %s", order_id, items_summary)
-                    time.sleep(2)
+
+                    # Deterministic Cart Open Helper before VLM Loop
+                    try:
+                        cart_selectors = [
+                            '[data-testid*="cart" i]',
+                            'a[href*="cart" i]',
+                            'button:has-text("Cart")',
+                            'div:has-text("My Cart")',
+                            'button:has-text("View Cart")',
+                            'div:has-text("View Cart")',
+                            'button:has-text("Checkout")',
+                            'button:has-text("Proceed to Pay")',
+                        ]
+                        for sel in cart_selectors:
+                            cart_elem = page.locator(sel).first
+                            if cart_elem.is_visible():
+                                logger.info("Deterministic Cart Open: Clicking cart element '%s'", sel)
+                                cart_elem.click(timeout=3000)
+                                time.sleep(3)
+                                break
+                    except Exception as ce:
+                        logger.warning("Deterministic cart click helper exception (proceeding to VLM): %s", ce)
+
+                    checkout_goal = (
+                        "Click on the Cart button, then click Login or Proceed to Checkout. "
+                        "When asked for a mobile/phone number, use 'input_phone'. "
+                        "When asked for the OTP verification code, use 'input_otp'. "
+                        "STOP immediately after OTP is entered — do NOT select an address or place a real payment."
+                    )
+                    self._run_vlm_navigation(page, checkout_goal, address, phone, max_steps=15, stop_after_otp=True)
+
+                    # If not already completed by stop_after_otp, send simulated order_success for the demo
+                    if self.is_active and (self.phase is None or self.phase != SessionPhase.SUCCESS):
+                        if self.phase is not None:
+                            self.phase = SessionPhase.SUCCESS
+
+                        order_id = f"EE-{int(time.time()) % 1000000}"
+                        items_summary = ", ".join(
+                            f"{c['name']} (x{c.get('qty', 1)})" for c in self.cart_summary
+                        ) or "Groceries"
+
+                        summary_msg = (
+                            f"**ORDER CONFIRMED!** (Order ID: #{order_id})\n\n"
+                            f"Items Ordered: {items_summary}\n"
+                            f"Estimated Delivery: **10 Minutes** (Pay on Delivery)"
+                        )
+
+                        self.send_localized({
+                            "sender": "bot",
+                            "action": "order_success",
+                            "text": summary_msg,
+                            "timestamp": datetime.now().strftime("%I:%M %p"),
+                            "order_id": order_id,
+                            "cart_summary": self.cart_summary
+                        })
+                        logger.info("Simulated order #%s completed successfully for items: %s", order_id, items_summary)
+                        time.sleep(2)
             finally:
                 if browser:
                     try:

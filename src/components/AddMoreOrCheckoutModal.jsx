@@ -536,17 +536,15 @@ export function AddMoreOrCheckoutModal({
     }
   };
 
-  // When user clicks "Proceed to Checkout" -> Show Fake Order Success Screen & notify backend!
+  // When user clicks "Proceed to Checkout" -> Notify backend immediately to run Cart -> Phone -> OTP flow!
   const handleCheckoutClick = () => {
     stopAllSpeech();
-    setIsOrderSuccess(true);
-
-    // Announce fake order success aloud in English or Tamil
-    const successSpeech =
-      lang === 'ta'
-        ? `வாழ்த்துக்கள்! உங்கள் ஆர்டர் வெற்றிகரமாக பதிவு செய்யப்பட்டது. ஆர்டர் எண் ${fakeOrderId}. உங்கள் பொருட்கள் 10 நிமிடங்களில் டெலிவரி செய்யப்படும்.`
-        : `Congratulations! Your order has been placed successfully. Order ID ${fakeOrderId}. Your items will be delivered in 10 minutes.`;
-    speakGlobal(successSpeech, lang, 'modal-order-success');
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (_) { }
+    }
+    onCheckout();
   };
 
   // Close the fake order receipt and finish the flow
