@@ -686,13 +686,13 @@ export function AddMoreOrCheckoutModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-more-modal-title"
     >
       <div
-        className={`w-full max-w-xl rounded-3xl p-6 sm:p-8 shadow-2xl border-4 transition-all my-auto ${isHighContrast
+        className={`w-full max-w-xl rounded-t-3xl sm:rounded-3xl max-h-[92dvh] overflow-y-auto p-4 sm:p-8 shadow-2xl border-t-4 sm:border-4 transition-all my-auto ${isHighContrast
             ? 'bg-zinc-950 text-yellow-300 border-yellow-400 shadow-yellow-400/10'
             : 'bg-white text-slate-900 border-emerald-500'
           }`}
@@ -831,18 +831,19 @@ export function AddMoreOrCheckoutModal({
           /* ===================================================================== */
           <>
             {/* Top Header Banner with Large Speaker Button */}
+            {/* Top Header Banner with Large Speaker Button */}
             <div
-              className={`flex items-start justify-between gap-3 pb-5 border-b-2 ${isHighContrast ? 'border-yellow-400/30' : 'border-slate-200'
+              className={`flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-3.5 sm:pb-5 border-b-2 ${isHighContrast ? 'border-yellow-400/30' : 'border-slate-200'
                 }`}
             >
-              <div className="flex items-center gap-4 min-w-0 flex-1">
+              <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
                 <div
-                  className={`p-4 rounded-2xl shrink-0 shadow-md ${isHighContrast
+                  className={`p-3 sm:p-4 rounded-2xl shrink-0 shadow-md ${isHighContrast
                       ? 'bg-yellow-400 text-black'
                       : 'bg-emerald-600 text-white'
                     }`}
                 >
-                  <ShoppingCart className="w-9 h-9" />
+                  <ShoppingCart className="w-7 h-7 sm:w-9 sm:h-9" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <span
@@ -856,7 +857,7 @@ export function AddMoreOrCheckoutModal({
                   </span>
                   <h2
                     id="add-more-modal-title"
-                    className="text-2xl sm:text-3xl font-black leading-tight"
+                    className="text-xl sm:text-3xl font-black leading-tight"
                   >
                     {t.addMoreOrCheckoutTitle ||
                       (lang === 'ta'
@@ -864,7 +865,7 @@ export function AddMoreOrCheckoutModal({
                         : 'Need Anything Else?')}
                   </h2>
                   <p
-                    className={`text-base font-semibold mt-0.5 ${isHighContrast ? 'text-yellow-100/90' : 'text-slate-600'
+                    className={`text-sm sm:text-base font-semibold mt-0.5 ${isHighContrast ? 'text-yellow-100/90' : 'text-slate-600'
                       }`}
                   >
                     {t.addMoreOrCheckoutSubtitle ||
@@ -876,33 +877,35 @@ export function AddMoreOrCheckoutModal({
               </div>
 
               {/* Prominent Read-Aloud Speaker Button */}
-              <SpeakButton
-                text={buildSpokenSummary()}
-                lang={lang}
-                id="modal-cart-summary"
-                isHighContrast={isHighContrast}
-                size="md"
-                idleLabel={lang === 'ta' ? 'கேட்க' : 'Listen'}
-                activeLabel={lang === 'ta' ? 'நிறுத்து' : 'Stop'}
-              />
+              <div className="self-end sm:self-auto shrink-0">
+                <SpeakButton
+                  text={buildSpokenSummary()}
+                  lang={lang}
+                  id="modal-cart-summary"
+                  isHighContrast={isHighContrast}
+                  size="md"
+                  idleLabel={lang === 'ta' ? 'கேட்க' : 'Listen'}
+                  activeLabel={lang === 'ta' ? 'நிறுத்து' : 'Stop'}
+                />
+              </div>
             </div>
 
             {/* Cart Summary List */}
             {cartSummary.length > 0 && (
               <div
-                className={`mt-5 rounded-2xl border-2 overflow-hidden ${isHighContrast
+                className={`mt-4 sm:mt-5 rounded-2xl border-2 overflow-hidden ${isHighContrast
                     ? 'bg-zinc-900 border-yellow-400/40'
                     : 'bg-slate-50 border-slate-200'
                   }`}
               >
                 <div
-                  className={`px-4 py-3 flex items-center justify-between border-b ${isHighContrast
+                  className={`px-3.5 py-2.5 sm:px-4 sm:py-3 flex items-center justify-between border-b ${isHighContrast
                       ? 'bg-yellow-400/10 border-yellow-400/30 text-yellow-300'
                       : 'bg-slate-100 border-slate-200 text-slate-700'
                     }`}
                 >
-                  <div className="flex items-center gap-2 font-extrabold text-base">
-                    <PackageCheck className="w-5 h-5 shrink-0" />
+                  <div className="flex items-center gap-2 font-extrabold text-sm sm:text-base">
+                    <PackageCheck className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
                     <span>
                       {t.cartSummaryTitle ||
                         (lang === 'ta'
@@ -911,7 +914,7 @@ export function AddMoreOrCheckoutModal({
                     </span>
                   </div>
                   <span
-                    className={`px-3 py-0.5 rounded-full text-sm font-black ${isHighContrast
+                    className={`px-2.5 sm:px-3 py-0.5 rounded-full text-xs sm:text-sm font-black ${isHighContrast
                         ? 'bg-yellow-400 text-black'
                         : 'bg-emerald-600 text-white'
                       }`}
@@ -926,7 +929,7 @@ export function AddMoreOrCheckoutModal({
                 </div>
 
                 {/* Scrollable Item Cards with Individual Speaker Button */}
-                <div className="p-3 sm:p-4 max-h-52 overflow-y-auto space-y-2.5">
+                <div className="p-2.5 sm:p-4 max-h-40 sm:max-h-52 overflow-y-auto space-y-2 sm:space-y-2.5">
                   {cartSummary.map((item, idx) => {
                     const itemName = lang === 'ta' ? resolveItemName(item) : item.name;
                     const itemWeight = lang === 'ta' ? getLocalizedWeight(item.weight, 'ta') : item.weight;
@@ -1026,16 +1029,16 @@ export function AddMoreOrCheckoutModal({
 
             {/* VIEW 1: Main Decision Buttons */}
             {!showAddMoreInput ? (
-              <div className="mt-6 space-y-3.5">
+              <div className="mt-4 sm:mt-6 space-y-2.5 sm:space-y-3.5">
                 <button
                   type="button"
                   onClick={handleCheckoutClick}
-                  className={`w-full min-h-[68px] px-6 py-4 rounded-2xl font-black text-xl sm:text-2xl flex items-center justify-center gap-3.5 transition-all shadow-lg border-2 active:scale-[0.99] ${isHighContrast
+                  className={`w-full min-h-[56px] sm:min-h-[68px] px-4 py-3 sm:px-6 sm:py-4 rounded-2xl font-black text-lg sm:text-2xl flex items-center justify-center gap-3 sm:gap-3.5 transition-all shadow-lg border-2 active:scale-[0.99] ${isHighContrast
                       ? 'bg-yellow-400 text-black border-yellow-300 hover:bg-yellow-300'
                       : 'bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700 shadow-emerald-600/20'
                     }`}
                 >
-                  <CheckCircle2 className="w-8 h-8 shrink-0" />
+                  <CheckCircle2 className="w-6 h-6 sm:w-8 sm:h-8 shrink-0" />
                   <span>
                     {t.proceedCheckout ||
                       (lang === 'ta'
@@ -1050,12 +1053,12 @@ export function AddMoreOrCheckoutModal({
                     stopAllSpeech();
                     setShowAddMoreInput(true);
                   }}
-                  className={`w-full min-h-[64px] px-6 py-4 rounded-2xl font-black text-lg sm:text-xl flex items-center justify-center gap-3 transition-all shadow-sm border-2 active:scale-[0.99] ${isHighContrast
+                  className={`w-full min-h-[52px] sm:min-h-[64px] px-4 py-3 sm:px-6 sm:py-4 rounded-2xl font-black text-base sm:text-xl flex items-center justify-center gap-2.5 sm:gap-3 transition-all shadow-sm border-2 active:scale-[0.99] ${isHighContrast
                       ? 'bg-zinc-900 text-yellow-300 border-yellow-400 hover:bg-zinc-800'
                       : 'bg-amber-50 text-amber-950 border-amber-400 hover:bg-amber-100'
                     }`}
                 >
-                  <Plus className="w-7 h-7 shrink-0" />
+                  <Plus className="w-6 h-6 sm:w-7 sm:h-7 shrink-0" />
                   <span>
                     {t.addMoreItems ||
                       (lang === 'ta'

@@ -59,3 +59,12 @@ html {
 ::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
+
+/* Hide scrollbar for Chrome, Safari, Opera and Firefox/IE */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

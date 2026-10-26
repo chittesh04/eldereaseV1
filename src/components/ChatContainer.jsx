@@ -36,7 +36,7 @@ export function ChatContainer({
   return (
     <main 
       ref={containerRef}
-      className={`flex-1 overflow-y-auto p-4 md:p-6 transition-colors ${
+      className={`flex-1 overflow-y-auto px-2.5 py-3 sm:px-6 sm:py-6 transition-colors ${
         isHighContrast ? 'bg-black' : 'bg-slate-50'
       }`}
       role="log"
@@ -76,7 +76,7 @@ export function ChatContainer({
         {/* Welcome Card & Starter Prompts if only welcome message or empty */}
         {messages.length <= 1 && (
           <div 
-            className={`p-6 md:p-8 rounded-3xl text-center border-2 shadow-sm transition-all ${
+            className={`p-4 sm:p-8 rounded-2xl sm:rounded-3xl text-center border-2 shadow-sm transition-all ${
               isHighContrast
                 ? 'bg-zinc-900 border-yellow-400 text-yellow-300'
                 : 'bg-white border-slate-200 text-slate-800'

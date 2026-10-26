@@ -126,13 +126,13 @@ export function OrderSuccessModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="order-success-title"
     >
       <div
-        className={`w-full max-w-xl rounded-3xl p-6 sm:p-8 shadow-2xl border-4 transition-all my-auto ${
+        className={`w-full max-w-xl rounded-t-3xl sm:rounded-3xl max-h-[92dvh] overflow-y-auto p-4 sm:p-8 shadow-2xl border-t-4 sm:border-4 transition-all my-auto ${
           isHighContrast
             ? 'bg-zinc-950 text-yellow-300 border-yellow-400 shadow-yellow-400/10'
             : 'bg-white text-slate-900 border-emerald-500'
@@ -220,14 +220,14 @@ export function OrderSuccessModal({
                   : 'bg-slate-50 border-slate-200'
               }`}
             >
-              <div className="p-3 sm:p-4 max-h-48 overflow-y-auto space-y-2">
+              <div className="p-3 sm:p-4 max-h-40 sm:max-h-48 overflow-y-auto space-y-2">
                 {cartSummary.map((item, idx) => {
                   const itemName = lang === 'ta' ? resolveItemName(item) : item.name;
                   const itemWeight = getLocalizedWeight(item.weight, lang);
                   return (
                     <div
                       key={idx}
-                      className="flex justify-between items-center text-base font-extrabold"
+                      className="flex justify-between items-center text-sm sm:text-base font-extrabold"
                     >
                       <span className="truncate flex-1">
                         ✅ {itemName}
@@ -240,7 +240,7 @@ export function OrderSuccessModal({
                 })}
               </div>
               <div
-                className={`px-4 py-3 flex justify-between items-center border-t font-black text-lg ${
+                className={`px-4 py-3 flex justify-between items-center border-t font-black text-base sm:text-lg ${
                   isHighContrast
                     ? 'bg-black border-yellow-400/30 text-yellow-300'
                     : 'bg-emerald-50 border-slate-200 text-emerald-950'
@@ -251,7 +251,7 @@ export function OrderSuccessModal({
                     ? 'மொத்தத் தொகை (Cash on Delivery):'
                     : 'Total Amount (Pay on Delivery):'}
                 </span>
-                <span className="text-xl">
+                <span className="text-lg sm:text-xl">
                   {estimatedTotal > 0 ? `₹${estimatedTotal}` : 'Paid'}
                 </span>
               </div>
@@ -262,13 +262,13 @@ export function OrderSuccessModal({
           <button
             type="button"
             onClick={handleFinish}
-            className={`w-full min-h-[64px] py-4 rounded-2xl font-black text-xl flex items-center justify-center gap-3 transition-all shadow-lg border-2 ${
+            className={`w-full min-h-[56px] sm:min-h-[64px] py-3.5 sm:py-4 rounded-2xl font-black text-lg sm:text-xl flex items-center justify-center gap-3 transition-all shadow-lg border-2 ${
               isHighContrast
                 ? 'bg-yellow-400 text-black border-yellow-300 hover:bg-yellow-300'
                 : 'bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700'
             }`}
           >
-            <CheckCircle2 className="w-7 h-7" />
+            <CheckCircle2 className="w-6 h-6 sm:w-7 sm:h-7" />
             <span>
               {lang === 'ta' ? 'முடிக்கவும் (Done)' : 'Done & Close'}
             </span>

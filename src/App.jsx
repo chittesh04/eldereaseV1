@@ -470,7 +470,7 @@ export function App() {
   };
 
   return (
-    <div className={`min-h-screen flex flex-col transition-colors ${isHighContrast ? 'bg-black text-yellow-300' : 'bg-slate-50 text-slate-900'
+    <div className={`h-[100dvh] flex flex-col overflow-hidden transition-colors ${isHighContrast ? 'bg-black text-yellow-300' : 'bg-slate-50 text-slate-900'
       }`}>
 
       {/* Header */}

@@ -63,13 +63,13 @@ export function AccessibilityModal({ lang = 'en', isOpen, onClose, isHighContras
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
       role="dialog"
       aria-modal="true"
       aria-labelledby="a11y-modal-title"
     >
       <div 
-        className={`w-full max-w-2xl rounded-3xl p-6 md:p-8 shadow-2xl border-4 max-h-[90vh] overflow-y-auto ${
+        className={`w-full max-w-2xl rounded-t-3xl sm:rounded-3xl p-4 sm:p-8 shadow-2xl border-t-4 sm:border-4 max-h-[92dvh] overflow-y-auto ${
           isHighContrast
             ? 'bg-black text-yellow-300 border-yellow-400'
             : 'bg-white text-slate-900 border-blue-600'

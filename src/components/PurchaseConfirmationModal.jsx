@@ -53,14 +53,14 @@ export function PurchaseConfirmationModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-modal-title"
       onClick={(e) => { if (e.target === e.currentTarget) handleCancelClick(); }}
     >
       <div
-        className={`w-full max-w-lg rounded-3xl p-6 md:p-8 shadow-2xl border-4 transition-all ${
+        className={`w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[92dvh] overflow-y-auto p-4 sm:p-8 shadow-2xl border-t-4 sm:border-4 transition-all ${
           isHighContrast
             ? 'bg-black text-yellow-300 border-yellow-400'
             : 'bg-white text-slate-900 border-emerald-600'

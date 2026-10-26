@@ -77,21 +77,21 @@ export function Header({
       }`}
       role="banner"
     >
-      <div className="max-w-5xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="max-w-5xl mx-auto px-3 py-2 sm:px-6 sm:py-3 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
         
         {/* Brand & Connection State */}
-        <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-2xl ${isHighContrast ? 'bg-yellow-400 text-black' : 'bg-blue-700 text-white'} shadow-md`}>
-            <ShoppingBag className="w-7 h-7" aria-hidden="true" />
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <div className={`p-1.5 sm:p-2 rounded-2xl ${isHighContrast ? 'bg-yellow-400 text-black' : 'bg-blue-700 text-white'} shadow-md shrink-0`}>
+            <ShoppingBag className="w-6 h-6 sm:w-7 sm:h-7" aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-xl md:text-2xl font-black tracking-tight flex items-center gap-2">
+            <h1 className="text-lg sm:text-xl md:text-2xl font-black tracking-tight flex items-center gap-1.5 sm:gap-2">
               {t.appName}
-              <span className="text-xs uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-300 dark:bg-zinc-800 dark:text-yellow-300 dark:border-yellow-400">
+              <span className="text-[10px] sm:text-xs uppercase font-bold tracking-wider px-1.5 sm:px-2 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-300 dark:bg-zinc-800 dark:text-yellow-300 dark:border-yellow-400">
                 {t.agentBadge}
               </span>
             </h1>
-            <p className={`text-xs md:text-sm font-semibold ${isHighContrast ? 'text-white' : 'text-slate-600'}`}>
+            <p className={`text-xs md:text-sm font-semibold hidden sm:block ${isHighContrast ? 'text-white' : 'text-slate-600'}`}>
               {t.appTagline}
             </p>
           </div>
@@ -103,12 +103,12 @@ export function Header({
         </div>
 
         {/* Accessibility & Quick Controls Toolbar */}
-        <div className="flex items-center gap-2 flex-wrap" role="toolbar" aria-label="Accessibility settings toolbar">
+        <div className="w-full sm:w-auto flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 sm:py-0 sm:flex-wrap sm:gap-2.5" role="toolbar" aria-label="Accessibility settings toolbar">
           
           {/* Language Switcher Button (English <-> தமிழ்) */}
           <button
             onClick={onToggleLanguage}
-            className={`touch-target px-3.5 py-2 rounded-xl font-extrabold flex items-center gap-2 border-2 transition-all shadow-sm ${
+            className={`touch-target px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-extrabold flex items-center gap-1.5 sm:gap-2 border-2 transition-all shadow-sm shrink-0 whitespace-nowrap text-xs sm:text-base ${
               isHighContrast
                 ? 'bg-zinc-900 text-yellow-300 border-yellow-400 hover:bg-yellow-400 hover:text-black'
                 : 'bg-indigo-50 text-indigo-900 border-indigo-300 hover:bg-indigo-100 hover:border-indigo-500'
@@ -116,17 +116,17 @@ export function Header({
             title={t.langSwitchTitle}
             aria-label={t.langSwitchTitle}
           >
-            <Languages className="w-5 h-5" />
-            <span className="text-base font-black">
+            <Languages className="w-4 h-4 sm:w-5 sm:h-5" />
+            <span className="text-xs sm:text-base font-black">
               {t.langSwitch}
             </span>
           </button>
 
           {/* Font Resizing Controls */}
-          <div className="flex items-center bg-slate-100 rounded-xl p-1 border border-slate-300 dark:bg-zinc-800 dark:border-zinc-700">
+          <div className="flex items-center bg-slate-100 rounded-xl p-0.5 sm:p-1 border border-slate-300 dark:bg-zinc-800 dark:border-zinc-700 shrink-0">
             <button
               onClick={handleFontDecrease}
-              className="touch-target px-3 py-1 font-extrabold text-base hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-lg transition-colors"
+              className="touch-target px-2 py-1 sm:px-3 sm:py-1 font-extrabold text-xs sm:text-base hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-lg transition-colors"
               title={t.decreaseFont}
               aria-label={t.decreaseFont}
             >
@@ -134,7 +134,7 @@ export function Header({
             </button>
             <button
               onClick={handleFontReset}
-              className="touch-target px-3 py-1 font-black text-base hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-lg transition-colors"
+              className="touch-target px-2 py-1 sm:px-3 sm:py-1 font-black text-xs sm:text-base hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-lg transition-colors"
               title={t.resetFont}
               aria-label={t.resetFont}
             >
@@ -142,7 +142,7 @@ export function Header({
             </button>
             <button
               onClick={handleFontIncrease}
-              className="touch-target px-3 py-1 font-black text-lg text-blue-700 dark:text-yellow-400 hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-lg transition-colors"
+              className="touch-target px-2 py-1 sm:px-3 sm:py-1 font-black text-sm sm:text-lg text-blue-700 dark:text-yellow-400 hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-lg transition-colors"
               title={t.increaseFont}
               aria-label={t.increaseFont}
             >
@@ -153,7 +153,7 @@ export function Header({
           {/* High Contrast Toggle */}
           <button
             onClick={() => setIsHighContrast(!isHighContrast)}
-            className={`touch-target px-3 py-2 rounded-xl font-bold flex items-center gap-2 border transition-all ${
+            className={`touch-target px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl font-bold flex items-center gap-1.5 sm:gap-2 border transition-all shrink-0 whitespace-nowrap text-xs sm:text-sm ${
               isHighContrast
                 ? 'bg-yellow-400 text-black border-yellow-300 hover:bg-yellow-300'
                 : 'bg-slate-100 text-slate-800 border-slate-300 hover:bg-slate-200'
@@ -161,7 +161,7 @@ export function Header({
             title={isHighContrast ? t.highContrastOn : t.highContrastOff}
             aria-label={isHighContrast ? t.highContrastOn : t.highContrastOff}
           >
-            {isHighContrast ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            {isHighContrast ? <Sun className="w-4 h-4 sm:w-5 sm:h-5" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5" />}
             <span className="hidden sm:inline text-sm font-extrabold">
               {isHighContrast ? t.highContrastOn : t.highContrastOff}
             </span>
@@ -170,7 +170,7 @@ export function Header({
           {/* Speech / Voice Narration (TTS) Toggle */}
           <button
             onClick={onToggleTts || (() => setTtsEnabled && setTtsEnabled(!ttsEnabled))}
-            className={`touch-target px-3 py-2 rounded-xl font-bold flex items-center gap-2 border transition-all ${
+            className={`touch-target px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl font-bold flex items-center gap-1.5 sm:gap-2 border transition-all shrink-0 whitespace-nowrap text-xs sm:text-sm ${
               ttsEnabled
                 ? 'bg-blue-700 text-white border-blue-800 hover:bg-blue-800'
                 : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
@@ -178,7 +178,7 @@ export function Header({
             title={ttsEnabled ? t.voiceOn : t.voiceMuted}
             aria-label={ttsEnabled ? t.voiceMuted : t.voiceOn}
           >
-            {ttsEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+            {ttsEnabled ? <Volume2 className="w-4 h-4 sm:w-5 sm:h-5" /> : <VolumeX className="w-4 h-4 sm:w-5 sm:h-5" />}
             <span className="hidden sm:inline text-sm">
               {ttsEnabled ? t.voiceOn : t.voiceMuted}
             </span>
@@ -189,7 +189,7 @@ export function Header({
             <button
               type="button"
               onClick={stopAllSpeech}
-              className={`touch-target px-3.5 py-2 rounded-xl font-black flex items-center gap-2 border-2 transition-all animate-pulse shadow-lg ${
+              className={`touch-target px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-black flex items-center gap-1.5 sm:gap-2 border-2 transition-all animate-pulse shadow-lg shrink-0 whitespace-nowrap text-xs sm:text-sm ${
                 isHighContrast
                   ? 'bg-yellow-300 text-black border-white hover:bg-yellow-400 ring-2 ring-white'
                   : 'bg-red-600 text-white border-red-700 hover:bg-red-700 shadow-red-200 ring-2 ring-red-300'
@@ -197,8 +197,8 @@ export function Header({
               title={lang === 'ta' ? 'குரலை நிறுத்து' : 'Stop Voice'}
               aria-label={lang === 'ta' ? 'குரலை நிறுத்து' : 'Stop Voice'}
             >
-              <VolumeX className="w-5 h-5 shrink-0" />
-              <span className="text-sm font-black whitespace-nowrap">
+              <VolumeX className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+              <span className="text-xs sm:text-sm font-black whitespace-nowrap">
                 {lang === 'ta' ? 'குரலை நிறுத்து' : 'Stop Voice'}
               </span>
             </button>
@@ -207,21 +207,21 @@ export function Header({
           {/* Reset Conversation */}
           <button
             onClick={onResetChat}
-            className="touch-target p-2.5 rounded-xl border border-slate-300 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors"
+            className="touch-target p-2 sm:p-2.5 rounded-xl border border-slate-300 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors shrink-0"
             title={t.resetChat}
             aria-label={t.resetChat}
           >
-            <RotateCcw className="w-5 h-5" />
+            <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
 
           {/* Help modal */}
           <button
             onClick={onOpenHelp}
-            className="touch-target p-2.5 rounded-xl border border-slate-300 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors"
+            className="touch-target p-2 sm:p-2.5 rounded-xl border border-slate-300 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors shrink-0"
             title={t.helpGuide}
             aria-label={t.helpGuide}
           >
-            <HelpCircle className="w-5 h-5" />
+            <HelpCircle className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
 
         </div>

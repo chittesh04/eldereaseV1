@@ -78,11 +78,11 @@ export function MessageBubble({
       role="article"
       aria-label={`${isUser ? 'Your message' : 'Assistant message'} at ${message.timestamp || t.justNow}`}
     >
-      <div className={`flex gap-3 max-w-[90%] md:max-w-[85%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+      <div className={`flex gap-2 sm:gap-3 max-w-[95%] sm:max-w-[85%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
         
         {/* Avatar */}
         <div 
-          className={`flex-shrink-0 w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-lg shadow-sm border ${
+          className={`flex-shrink-0 w-8 h-8 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl flex items-center justify-center font-bold text-sm sm:text-lg shadow-sm border ${
             isUser
               ? isHighContrast 
                 ? 'bg-yellow-400 text-black border-yellow-300' 
@@ -93,12 +93,12 @@ export function MessageBubble({
           }`}
           aria-hidden="true"
         >
-          {isUser ? <User className="w-6 h-6" /> : <Bot className="w-6 h-6" />}
+          {isUser ? <User className="w-4 h-4 sm:w-6 sm:h-6" /> : <Bot className="w-4 h-4 sm:w-6 sm:h-6" />}
         </div>
 
         {/* Bubble Content */}
         <div 
-          className={`rounded-2xl px-5 py-4 shadow-md text-elder-base md:text-elder-lg border transition-all ${
+          className={`rounded-2xl px-3.5 py-3 sm:px-5 sm:py-4 shadow-md text-elder-base md:text-elder-lg border transition-all ${
             isUser
               ? isHighContrast
                 ? 'bg-zinc-900 text-white border-2 border-yellow-400 rounded-tr-none'
