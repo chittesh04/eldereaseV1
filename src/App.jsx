@@ -6,7 +6,7 @@ import { InputArea } from './components/InputArea';
 import { OTPModal } from './components/OTPModal';
 import { ConnectionBanner } from './components/ConnectionBanner';
 import { AccessibilityModal } from './components/AccessibilityModal';
-import { useWebSocket } from './hooks/useWebSocket';
+import { useWebSocket, getDefaultWsUrl } from './hooks/useWebSocket';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 import { useSpeechSynthesis } from './hooks/useSpeechSynthesis';
 import { translations } from './constants/translations';
@@ -73,6 +73,7 @@ export function App() {
   const [ttsEnabled, setTtsEnabled] = useState(() => {
     return localStorage.getItem('elderease_tts') !== 'false';
   });
+  const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isOrderSuccessModalOpen, setIsOrderSuccessModalOpen] = useState(false);
   const [orderSuccessData, setOrderSuccessData] = useState(null);
@@ -126,11 +127,15 @@ export function App() {
     stop: stopTTS,
     isSpeaking,
     hasInteracted,
+    unlockAudio: unlockHookAudio,
   } = useSpeechSynthesis({
     enabled: ttsEnabled,
     lang: lang,
     rate: 0.9
   });
+
+  // Combined unlock state so clicking "Start Voice Narration" immediately hides the banner
+  const hasAudioUnlocked = isAudioUnlocked || hasInteracted;
 
   // Handle incoming messages from LIVE Backend / WebSocket
   const handleIncomingMessage = useCallback((data) => {
@@ -226,14 +231,14 @@ export function App() {
     if (data.type === 'otp') {
       orderDispatch({ type: 'OTP_REQUESTED', prompt: data.prompt, otpLength: data.otpLength });
     }
-  }, [orderDispatch]);
+  }, [orderDispatch, cartSummary]);
 
   // Reactive Auto-Read on Every New Bot Message
   const lastSpokenSignatureRef = useRef(null);
   const lastSpokenActionRef = useRef(null);
 
   useEffect(() => {
-    if (!ttsEnabled) {
+    if (!ttsEnabled || !hasAudioUnlocked) {
       return;
     }
 
@@ -288,7 +293,37 @@ export function App() {
       console.log('[Auto-TTS] Speaking:', textToRead);
       speakGlobal(textToRead, lang, 'msg-' + (lastMsg.id ?? lastIdx), true);
     }
-  }, [messages, ttsEnabled, lang]);
+  }, [messages, ttsEnabled, lang, hasAudioUnlocked]);
+
+  // Dedicated Handler for "Start Voice Narration" Banner Button
+  const handleUnlockAndStartNarration = useCallback(() => {
+    // 1. Unlock SpeechSynthesis synchronously inside the user click gesture
+    unlockAudio();
+    if (typeof unlockHookAudio === 'function') {
+      unlockHookAudio();
+    }
+    setIsAudioUnlocked(true);
+
+    // 2. Ensure TTS is enabled
+    if (!ttsEnabled) {
+      setTtsEnabled(true);
+      localStorage.setItem('elderease_tts', 'true');
+    }
+
+    // 3. Immediately speak the latest bot message on screen
+    const latestBotMsg = [...messages].reverse().find((m) => m.sender === 'bot');
+    if (latestBotMsg) {
+      const speechSignature = `${latestBotMsg.id || messages.length}-${latestBotMsg.action || ''}-${latestBotMsg.text || ''}-${(latestBotMsg.results || []).length}`;
+      lastSpokenSignatureRef.current = speechSignature;
+      lastSpokenActionRef.current = latestBotMsg.action || 'bot_message';
+      const textToRead = buildBotMessageSpeechText(latestBotMsg, lang);
+      if (textToRead && textToRead.trim()) {
+        setSpeakingMessageId(latestBotMsg.id);
+        console.log('[Start Voice Narration] Speaking:', textToRead);
+        speakGlobal(textToRead, lang, `msg-${latestBotMsg.id || messages.length - 1}`, true);
+      }
+    }
+  }, [unlockHookAudio, ttsEnabled, messages, lang]);
 
   // Toggle Voice ON / OFF with instant audio feedback
   const handleToggleTts = () => {
@@ -299,9 +334,12 @@ export function App() {
     if (!nextVal) {
       stopAllSpeech();
     } else {
-      if (!hasInteracted) {
-        unlockAudio();
+      unlockAudio();
+      if (typeof unlockHookAudio === 'function') {
+        unlockHookAudio();
       }
+      setIsAudioUnlocked(true);
+
       // Instantly speak the latest bot message currently on screen
       const latestBotMsg = [...messages].reverse().find((m) => m.sender === 'bot');
       if (latestBotMsg) {
@@ -318,7 +356,7 @@ export function App() {
     }
   };
 
-  const [wsUrl, setWsUrl] = useState(import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws');
+  const [wsUrl, setWsUrl] = useState(() => import.meta.env.VITE_WS_URL || getDefaultWsUrl('/ws'));
 
   // Real-time WebSocket Manager Hook
   const {
@@ -370,9 +408,9 @@ export function App() {
     let targetUrl = wsUrl;
 
     if (lowerText.includes('zepto')) {
-      targetUrl = 'ws://localhost:8001/ws';
+      targetUrl = getDefaultWsUrl('/ws-zepto');
     } else if (lowerText.includes('blinkit')) {
-      targetUrl = 'ws://localhost:8000/ws';
+      targetUrl = getDefaultWsUrl('/ws');
     }
 
     if (targetUrl !== wsUrl) {
@@ -391,8 +429,12 @@ export function App() {
     stopTTS();
 
     // Gotcha 1: Register user interaction to unlock audio
-    if (!hasInteracted) {
+    if (!hasAudioUnlocked) {
       unlockAudio();
+      if (typeof unlockHookAudio === 'function') {
+        unlockHookAudio();
+      }
+      setIsAudioUnlocked(true);
     }
 
     const userMessage = {
@@ -463,8 +505,12 @@ export function App() {
   };
 
   const handleManualSpeak = (text, id = 'manual-speak') => {
-    if (!hasInteracted) {
+    if (!hasAudioUnlocked) {
       unlockAudio();
+      if (typeof unlockHookAudio === 'function') {
+        unlockHookAudio();
+      }
+      setIsAudioUnlocked(true);
     }
     speakGlobal(text, lang, id);
   };
@@ -517,8 +563,8 @@ export function App() {
         speakingMessageId={isSpeaking ? speakingMessageId : null}
         onSelectPrompt={handleSendMessage}
         onSelectProduct={handleSelectProduct}
-        hasAudioUnlocked={hasInteracted}
-        onUnlockAudio={unlockAudio}
+        hasAudioUnlocked={hasAudioUnlocked}
+        onUnlockAudio={handleUnlockAndStartNarration}
       />
 
       {/* Input Area (with Voice Mic, mobile OTP & Phone inputMode & autoComplete) */}

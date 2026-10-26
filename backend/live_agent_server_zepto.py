@@ -102,14 +102,12 @@ app = FastAPI(
     version="2.0.0"
 )
 
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in CORS_ORIGINS],
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 @app.get("/")
@@ -1741,6 +1739,8 @@ class AgentSession:
 active_sessions: Dict[WebSocket, AgentSession] = {}
 
 @app.websocket("/ws")
+@app.websocket("/ws-zepto")
+
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     loop = asyncio.get_running_loop()
@@ -1804,4 +1804,4 @@ async def websocket_endpoint(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting ElderEase Zepto Agent Server on http://localhost:8001 (ws://localhost:8001/ws)")
-    uvicorn.run("live_agent_server_zepto:app", host="0.0.0.0", port=8001, reload=False)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

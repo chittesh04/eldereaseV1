@@ -8,8 +8,6 @@ import {
   MicOff,
   ArrowLeft,
   Sparkles,
-  Volume2,
-  VolumeX,
   PartyPopper,
   Clock,
   ShieldCheck,
@@ -17,6 +15,7 @@ import {
 import { SpeakButton, speakGlobal, stopAllSpeech } from './SpeakButton';
 import { translations } from '../constants/translations';
 import { findLocalizedNameFromMessages, fetchTamilTranslation } from '../utils/translator';
+import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 
 /**
  * Comprehensive Tamil grocery terms dictionary for fallback localization
@@ -322,13 +321,48 @@ export function AddMoreOrCheckoutModal({
   const [showAddMoreInput, setShowAddMoreInput] = useState(false);
   const [isOrderSuccess, setIsOrderSuccess] = useState(false);
   const [fakeOrderId, setFakeOrderId] = useState('');
-  const [isListening, setIsListening] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
   const [dynamicTranslations, setDynamicTranslations] = useState({});
-  const recognitionRef = useRef(null);
-  const baseTextRef = useRef('');
-  const micStartTimeoutRef = useRef(null);
+  const addMoreInputRef = useRef(null);
   const wasOpenRef = useRef(false);
+
+  // Use the EXACT same battle-tested SpeechRecognition hook as the main chat screen!
+  const handleVoiceResult = useCallback((recognizedText) => {
+    setAddMoreText(recognizedText);
+  }, []);
+
+  const {
+    isListening,
+    transcript,
+    error: voiceError,
+    isSupported: isVoiceSupported,
+    startListening,
+    stopListening,
+    clearError,
+  } = useSpeechRecognition({
+    onResult: handleVoiceResult,
+    lang: lang === 'ta' ? 'ta-IN' : 'en-IN',
+  });
+
+  // Sync interim transcript directly into input box (identical to App.jsx)
+  useEffect(() => {
+    if (transcript) {
+      setAddMoreText(transcript);
+    }
+  }, [transcript]);
+
+  // Only auto-focus the "Add More" input on desktop devices (never pop up virtual keyboard on mobile/touch)
+  useEffect(() => {
+    if (!showAddMoreInput) return;
+    const isTouchOrMobile =
+      typeof window !== 'undefined' &&
+      (window.matchMedia?.('(pointer: coarse)').matches ||
+        'ontouchstart' in window ||
+        window.innerWidth < 768);
+
+    if (!isTouchOrMobile && addMoreInputRef.current) {
+      addMoreInputRef.current.focus();
+    }
+  }, [showAddMoreInput]);
 
   // Background runtime translation to guarantee 100% Tamil translation (same as top 5 suggestions)
   useEffect(() => {
@@ -357,7 +391,7 @@ export function AddMoreOrCheckoutModal({
         if (isMounted && translated && /[\u0B80-\u0BFF]/.test(translated)) {
           setDynamicTranslations((prev) => (prev[name] === translated ? prev : { ...prev, [name]: translated }));
         }
-      } catch (_) {}
+      } catch (_) { }
     });
 
     return () => {
@@ -384,14 +418,6 @@ export function AddMoreOrCheckoutModal({
     }
     return sum;
   }, 0);
-
-  // Speak any text aloud using unified global speech manager
-  const speakText = useCallback(
-    (textToSpeak, id = 'modal-cart-summary') => {
-      speakGlobal(textToSpeak, lang, id);
-    },
-    [lang]
-  );
 
   // Build natural spoken summary for visually impaired users
   const buildSpokenSummary = useCallback(() => {
@@ -452,36 +478,6 @@ export function AddMoreOrCheckoutModal({
     resolveItemName,
   ]);
 
-  const toggleReadAloud = () => {
-    if (!('speechSynthesis' in window)) return;
-    if (isSpeaking) {
-      stopAllSpeech();
-      setIsSpeaking(false);
-    } else {
-      speakText(buildSpokenSummary());
-    }
-  };
-
-  // Speak a single item card when its mini speaker button is tapped
-  const speakSingleItem = (item, idx) => {
-    if (lang === 'ta') {
-      const itemName = resolveItemName(item);
-      const itemWeight = getLocalizedWeight(item.weight, 'ta');
-      speakText(
-        `பொருள் ${idx + 1}: ${itemName}. ${itemWeight ? `அளவு ${itemWeight}. ` : ''
-        }${item.qty > 1 ? `எண்ணிக்கை ${item.qty}. ` : ''}விலை ${String(
-          item.price || ''
-        ).replace('₹', '')} ரூபாய்.`
-      );
-    } else {
-      speakText(
-        `Item ${idx + 1}: ${item.name}. ${item.weight ? `Weight ${item.weight}. ` : ''
-        }${item.qty > 1 ? `Quantity ${item.qty}. ` : ''}Price ${item.price || 'not available'
-        }.`
-      );
-    }
-  };
-
   // Reset state & auto-announce when modal opens
   useEffect(() => {
     if (isOpen) {
@@ -489,7 +485,7 @@ export function AddMoreOrCheckoutModal({
       setAddMoreText('');
       setShowAddMoreInput(false);
       setIsOrderSuccess(false);
-      setIsListening(false);
+      clearError();
       setFakeOrderId(
         `EE-${Math.floor(100000 + Math.random() * 900000)}`
       );
@@ -500,41 +496,23 @@ export function AddMoreOrCheckoutModal({
         clearTimeout(timer);
       };
     } else if (wasOpenRef.current) {
-      // ONLY stop speech when the modal transitions from open to closed!
+      // ONLY stop speech & mic when the modal transitions from open to closed!
       wasOpenRef.current = false;
       stopAllSpeech();
-      setIsSpeaking(false);
-      if (micStartTimeoutRef.current) {
-        clearTimeout(micStartTimeoutRef.current);
-        micStartTimeoutRef.current = null;
-      }
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch (_) { }
-      }
-      setIsListening(false);
+      stopListening();
     }
   }, [isOpen]); // Only run when modal open state toggles
 
-  // Ensure unmounting while open cleans up speech, but never while closed
+  // Ensure unmounting while open cleans up speech & mic
   useEffect(() => {
     return () => {
       if (wasOpenRef.current) {
         wasOpenRef.current = false;
         stopAllSpeech();
       }
-      if (micStartTimeoutRef.current) {
-        clearTimeout(micStartTimeoutRef.current);
-        micStartTimeoutRef.current = null;
-      }
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch (_) { }
-      }
+      stopListening();
     };
-  }, []);
+  }, [stopListening]);
 
   if (!isOpen && !isOrderSuccess) return null;
 
@@ -543,16 +521,8 @@ export function AddMoreOrCheckoutModal({
     const trimmed = addMoreText.trim();
     if (trimmed) {
       stopAllSpeech();
-      if (micStartTimeoutRef.current) {
-        clearTimeout(micStartTimeoutRef.current);
-        micStartTimeoutRef.current = null;
-      }
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch (_) { }
-      }
-      setIsListening(false);
+      stopListening();
+      addMoreInputRef.current?.blur();
       onAddMore(trimmed);
     }
   };
@@ -560,128 +530,28 @@ export function AddMoreOrCheckoutModal({
   // When user clicks "Proceed to Checkout" -> Notify backend immediately to run Cart -> Phone -> OTP flow!
   const handleCheckoutClick = () => {
     stopAllSpeech();
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (_) { }
-    }
+    stopListening();
+    addMoreInputRef.current?.blur();
     onCheckout();
   };
 
   // Close the fake order receipt and finish the flow
   const handleFinishOrder = () => {
     stopAllSpeech();
+    stopListening();
     setIsOrderSuccess(false);
     onCheckout();
   };
 
-  // Built-in voice recognition for "Add More Items" (Exact configuration matching main page)
+  // Toggle Voice Mic using the exact same hook logic as InputArea.jsx
   const toggleVoiceInput = () => {
-    // 1. If currently listening, toggle off
+    addMoreInputRef.current?.blur();
     if (isListening) {
-      if (micStartTimeoutRef.current) {
-        clearTimeout(micStartTimeoutRef.current);
-        micStartTimeoutRef.current = null;
-      }
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch (_) { }
-      }
-      setIsListening(false);
-      return;
+      stopListening();
+    } else {
+      stopAllSpeech();
+      startListening();
     }
-
-    // 2. Check browser support
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert(
-        lang === 'ta'
-          ? 'உங்கள் உலாவியில் குரல் உள்ளீடு ஆதரிக்கப்படவில்லை. Google Chrome அல்லது Edge உலாவியைப் பயன்படுத்தவும்.'
-          : 'Voice input is not supported in this browser. Please use Google Chrome or Microsoft Edge.'
-      );
-      return;
-    }
-
-    // 3. Prevent TTS Speaker Echo: cancel any active speech synthesis
-    const wasSpeaking =
-      ('speechSynthesis' in window && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) ||
-      isSpeaking;
-    stopAllSpeech();
-    setIsSpeaking(false);
-
-    // Save whatever text is already in the input box before turning mic on
-    baseTextRef.current = addMoreText.trim();
-
-    // 4. Clean up any previous recognition instance
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.abort();
-      } catch (_) { }
-      recognitionRef.current = null;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = lang === 'ta' ? 'ta-IN' : 'en-IN';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
-
-    recognition.onstart = () => {
-      setIsListening(true);
-    };
-
-    recognition.onresult = (event) => {
-      let finalTranscript = '';
-      let interimTranscript = '';
-
-      for (let i = 0; i < event.results.length; i++) {
-        const resultItem = event.results[i];
-        const text = resultItem[0]?.transcript || '';
-        if (resultItem.isFinal) {
-          finalTranscript += text + ' ';
-        } else {
-          interimTranscript += text;
-        }
-      }
-
-      const combinedSpoken = (finalTranscript + interimTranscript).trim();
-      if (combinedSpoken) {
-        if (baseTextRef.current) {
-          const separator = baseTextRef.current.endsWith(',') ? ' ' : ', ';
-          setAddMoreText(`${baseTextRef.current}${separator}${combinedSpoken}`);
-        } else {
-          setAddMoreText(combinedSpoken);
-        }
-      }
-    };
-
-    recognition.onerror = (event) => {
-      console.warn('Modal speech recognition error:', event.error);
-      if (event.error !== 'no-speech') {
-        setIsListening(false);
-      }
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    recognitionRef.current = recognition;
-
-    // Wait 200ms before calling recognition.start() if TTS was speaking to avoid speaker echo
-    const delay = wasSpeaking ? 200 : 50;
-    if (micStartTimeoutRef.current) {
-      clearTimeout(micStartTimeoutRef.current);
-    }
-    micStartTimeoutRef.current = setTimeout(() => {
-      try {
-        recognition.start();
-      } catch (err) {
-        console.warn('Modal speech recognition start failed:', err);
-      }
-    }, delay);
   };
 
   return (
@@ -693,8 +563,8 @@ export function AddMoreOrCheckoutModal({
     >
       <div
         className={`w-full max-w-xl rounded-t-3xl sm:rounded-3xl max-h-[92dvh] overflow-y-auto p-4 sm:p-8 shadow-2xl border-t-4 sm:border-4 transition-all my-auto ${isHighContrast
-            ? 'bg-zinc-950 text-yellow-300 border-yellow-400 shadow-yellow-400/10'
-            : 'bg-white text-slate-900 border-emerald-500'
+          ? 'bg-zinc-950 text-yellow-300 border-yellow-400 shadow-yellow-400/10'
+          : 'bg-white text-slate-900 border-emerald-500'
           }`}
       >
         {/* ===================================================================== */}
@@ -718,8 +588,8 @@ export function AddMoreOrCheckoutModal({
             {/* Celebration Icon */}
             <div
               className={`w-20 h-20 mx-auto rounded-3xl flex items-center justify-center shadow-lg border-4 ${isHighContrast
-                  ? 'bg-yellow-400 text-black border-yellow-200'
-                  : 'bg-emerald-600 text-white border-emerald-200'
+                ? 'bg-yellow-400 text-black border-yellow-200'
+                : 'bg-emerald-600 text-white border-emerald-200'
                 }`}
             >
               <PartyPopper className="w-11 h-11" />
@@ -728,8 +598,8 @@ export function AddMoreOrCheckoutModal({
             <div>
               <span
                 className={`inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider px-3.5 py-1 rounded-full mb-2 ${isHighContrast
-                    ? 'bg-yellow-400/20 text-yellow-300 border border-yellow-400'
-                    : 'bg-emerald-100 text-emerald-800'
+                  ? 'bg-yellow-400/20 text-yellow-300 border border-yellow-400'
+                  : 'bg-emerald-100 text-emerald-800'
                   }`}
               >
                 <ShieldCheck className="w-4 h-4" />
@@ -755,8 +625,8 @@ export function AddMoreOrCheckoutModal({
             {/* 10-Minute Delivery ETA Pill */}
             <div
               className={`p-4 rounded-2xl border-2 flex items-center justify-center gap-3 font-black text-lg ${isHighContrast
-                  ? 'bg-zinc-900 border-yellow-400 text-yellow-300'
-                  : 'bg-amber-50 border-amber-300 text-amber-950'
+                ? 'bg-zinc-900 border-yellow-400 text-yellow-300'
+                : 'bg-amber-50 border-amber-300 text-amber-950'
                 }`}
             >
               <Clock className="w-6 h-6 shrink-0" />
@@ -771,8 +641,8 @@ export function AddMoreOrCheckoutModal({
             {cartSummary.length > 0 && (
               <div
                 className={`text-left rounded-2xl border-2 overflow-hidden ${isHighContrast
-                    ? 'bg-zinc-900 border-yellow-400/40'
-                    : 'bg-slate-50 border-slate-200'
+                  ? 'bg-zinc-900 border-yellow-400/40'
+                  : 'bg-slate-50 border-slate-200'
                   }`}
               >
                 <div className="p-3 sm:p-4 max-h-44 overflow-y-auto space-y-2">
@@ -794,8 +664,8 @@ export function AddMoreOrCheckoutModal({
                 </div>
                 <div
                   className={`px-4 py-3 flex justify-between items-center border-t font-black text-lg ${isHighContrast
-                      ? 'bg-black border-yellow-400/30 text-yellow-300'
-                      : 'bg-emerald-50 border-slate-200 text-emerald-950'
+                    ? 'bg-black border-yellow-400/30 text-yellow-300'
+                    : 'bg-emerald-50 border-slate-200 text-emerald-950'
                     }`}
                 >
                   <span>
@@ -815,8 +685,8 @@ export function AddMoreOrCheckoutModal({
               type="button"
               onClick={handleFinishOrder}
               className={`w-full min-h-[64px] py-4 rounded-2xl font-black text-xl flex items-center justify-center gap-3 transition-all shadow-lg border-2 ${isHighContrast
-                  ? 'bg-yellow-400 text-black border-yellow-300 hover:bg-yellow-300'
-                  : 'bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700'
+                ? 'bg-yellow-400 text-black border-yellow-300 hover:bg-yellow-300'
+                : 'bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700'
                 }`}
             >
               <CheckCircle2 className="w-7 h-7" />
@@ -831,7 +701,6 @@ export function AddMoreOrCheckoutModal({
           /* ===================================================================== */
           <>
             {/* Top Header Banner with Large Speaker Button */}
-            {/* Top Header Banner with Large Speaker Button */}
             <div
               className={`flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-3.5 sm:pb-5 border-b-2 ${isHighContrast ? 'border-yellow-400/30' : 'border-slate-200'
                 }`}
@@ -839,8 +708,8 @@ export function AddMoreOrCheckoutModal({
               <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
                 <div
                   className={`p-3 sm:p-4 rounded-2xl shrink-0 shadow-md ${isHighContrast
-                      ? 'bg-yellow-400 text-black'
-                      : 'bg-emerald-600 text-white'
+                    ? 'bg-yellow-400 text-black'
+                    : 'bg-emerald-600 text-white'
                     }`}
                 >
                   <ShoppingCart className="w-7 h-7 sm:w-9 sm:h-9" />
@@ -848,8 +717,8 @@ export function AddMoreOrCheckoutModal({
                 <div className="min-w-0 flex-1">
                   <span
                     className={`inline-flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wider px-3 py-1 rounded-full mb-1 ${isHighContrast
-                        ? 'bg-yellow-400/20 text-yellow-300 border border-yellow-400'
-                        : 'bg-emerald-100 text-emerald-800'
+                      ? 'bg-yellow-400/20 text-yellow-300 border border-yellow-400'
+                      : 'bg-emerald-100 text-emerald-800'
                       }`}
                   >
                     <Sparkles className="w-3.5 h-3.5" />
@@ -894,14 +763,14 @@ export function AddMoreOrCheckoutModal({
             {cartSummary.length > 0 && (
               <div
                 className={`mt-4 sm:mt-5 rounded-2xl border-2 overflow-hidden ${isHighContrast
-                    ? 'bg-zinc-900 border-yellow-400/40'
-                    : 'bg-slate-50 border-slate-200'
+                  ? 'bg-zinc-900 border-yellow-400/40'
+                  : 'bg-slate-50 border-slate-200'
                   }`}
               >
                 <div
                   className={`px-3.5 py-2.5 sm:px-4 sm:py-3 flex items-center justify-between border-b ${isHighContrast
-                      ? 'bg-yellow-400/10 border-yellow-400/30 text-yellow-300'
-                      : 'bg-slate-100 border-slate-200 text-slate-700'
+                    ? 'bg-yellow-400/10 border-yellow-400/30 text-yellow-300'
+                    : 'bg-slate-100 border-slate-200 text-slate-700'
                     }`}
                 >
                   <div className="flex items-center gap-2 font-extrabold text-sm sm:text-base">
@@ -915,8 +784,8 @@ export function AddMoreOrCheckoutModal({
                   </div>
                   <span
                     className={`px-2.5 sm:px-3 py-0.5 rounded-full text-xs sm:text-sm font-black ${isHighContrast
-                        ? 'bg-yellow-400 text-black'
-                        : 'bg-emerald-600 text-white'
+                      ? 'bg-yellow-400 text-black'
+                      : 'bg-emerald-600 text-white'
                       }`}
                   >
                     {totalUnits}{' '}
@@ -937,15 +806,15 @@ export function AddMoreOrCheckoutModal({
                       <div
                         key={idx}
                         className={`flex items-center justify-between gap-3 p-3 rounded-xl border ${isHighContrast
-                            ? 'bg-black border-yellow-400/30 text-yellow-200'
-                            : 'bg-white border-slate-200 text-slate-900 shadow-sm'
+                          ? 'bg-black border-yellow-400/30 text-yellow-200'
+                          : 'bg-white border-slate-200 text-slate-900 shadow-sm'
                           }`}
                       >
                         <div className="flex items-center gap-3 min-w-0 flex-1">
                           <span
                             className={`w-7 h-7 rounded-lg flex items-center justify-center font-black text-sm shrink-0 ${isHighContrast
-                                ? 'bg-yellow-400 text-black'
-                                : 'bg-emerald-100 text-emerald-800'
+                              ? 'bg-yellow-400 text-black'
+                              : 'bg-emerald-100 text-emerald-800'
                               }`}
                           >
                             {idx + 1}
@@ -957,8 +826,8 @@ export function AddMoreOrCheckoutModal({
                             {(itemWeight || item.qty > 1) && (
                               <p
                                 className={`text-xs sm:text-sm font-bold ${isHighContrast
-                                    ? 'text-yellow-400/80'
-                                    : 'text-slate-500'
+                                  ? 'text-yellow-400/80'
+                                  : 'text-slate-500'
                                   }`}
                               >
                                 {itemWeight ? `${itemWeight} ` : ''}
@@ -977,8 +846,8 @@ export function AddMoreOrCheckoutModal({
                             {item.qty > 1 && (
                               <span
                                 className={`inline-block text-xs font-black px-2 py-0.5 rounded-md mr-1.5 ${isHighContrast
-                                    ? 'bg-yellow-400/20 text-yellow-300 border border-yellow-400/50'
-                                    : 'bg-amber-100 text-amber-900'
+                                  ? 'bg-yellow-400/20 text-yellow-300 border border-yellow-400/50'
+                                  : 'bg-amber-100 text-amber-900'
                                   }`}
                               >
                                 ×{item.qty}
@@ -1012,8 +881,8 @@ export function AddMoreOrCheckoutModal({
                 {estimatedTotal > 0 && (
                   <div
                     className={`px-4 py-2.5 flex items-center justify-between border-t text-base font-black ${isHighContrast
-                        ? 'bg-zinc-950 border-yellow-400/30 text-yellow-300'
-                        : 'bg-emerald-50/70 border-slate-200 text-emerald-950'
+                      ? 'bg-zinc-950 border-yellow-400/30 text-yellow-300'
+                      : 'bg-emerald-50/70 border-slate-200 text-emerald-950'
                       }`}
                   >
                     <span>
@@ -1034,8 +903,8 @@ export function AddMoreOrCheckoutModal({
                   type="button"
                   onClick={handleCheckoutClick}
                   className={`w-full min-h-[56px] sm:min-h-[68px] px-4 py-3 sm:px-6 sm:py-4 rounded-2xl font-black text-lg sm:text-2xl flex items-center justify-center gap-3 sm:gap-3.5 transition-all shadow-lg border-2 active:scale-[0.99] ${isHighContrast
-                      ? 'bg-yellow-400 text-black border-yellow-300 hover:bg-yellow-300'
-                      : 'bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700 shadow-emerald-600/20'
+                    ? 'bg-yellow-400 text-black border-yellow-300 hover:bg-yellow-300'
+                    : 'bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700 shadow-emerald-600/20'
                     }`}
                 >
                   <CheckCircle2 className="w-6 h-6 sm:w-8 sm:h-8 shrink-0" />
@@ -1054,8 +923,8 @@ export function AddMoreOrCheckoutModal({
                     setShowAddMoreInput(true);
                   }}
                   className={`w-full min-h-[52px] sm:min-h-[64px] px-4 py-3 sm:px-6 sm:py-4 rounded-2xl font-black text-base sm:text-xl flex items-center justify-center gap-2.5 sm:gap-3 transition-all shadow-sm border-2 active:scale-[0.99] ${isHighContrast
-                      ? 'bg-zinc-900 text-yellow-300 border-yellow-400 hover:bg-zinc-800'
-                      : 'bg-amber-50 text-amber-950 border-amber-400 hover:bg-amber-100'
+                    ? 'bg-zinc-900 text-yellow-300 border-yellow-400 hover:bg-zinc-800'
+                    : 'bg-amber-50 text-amber-950 border-amber-400 hover:bg-amber-100'
                     }`}
                 >
                   <Plus className="w-6 h-6 sm:w-7 sm:h-7 shrink-0" />
@@ -1081,10 +950,14 @@ export function AddMoreOrCheckoutModal({
                   </label>
                   <button
                     type="button"
-                    onClick={() => setShowAddMoreInput(false)}
+                    onClick={() => {
+                      stopListening();
+                      addMoreInputRef.current?.blur();
+                      setShowAddMoreInput(false);
+                    }}
                     className={`inline-flex items-center gap-1.5 text-sm font-bold px-3 py-1.5 rounded-xl border ${isHighContrast
-                        ? 'border-yellow-400/50 text-yellow-300 hover:bg-zinc-800'
-                        : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                      ? 'border-yellow-400/50 text-yellow-300 hover:bg-zinc-800'
+                      : 'border-slate-300 text-slate-700 hover:bg-slate-100'
                       }`}
                   >
                     <ArrowLeft className="w-4 h-4" />
@@ -1094,6 +967,7 @@ export function AddMoreOrCheckoutModal({
 
                 <div className="flex gap-2.5">
                   <input
+                    ref={addMoreInputRef}
                     id="add-more-input"
                     type="text"
                     value={addMoreText}
@@ -1104,42 +978,59 @@ export function AddMoreOrCheckoutModal({
                         ? 'உதா: பால், தயிர், 1 கிலோ தக்காளி...'
                         : 'e.g., 2 packets curd, banana, bread...')
                     }
-                    autoFocus
                     className={`flex-1 min-w-0 px-4 py-4 rounded-2xl text-lg sm:text-xl font-bold border-2 outline-none transition-all ${isHighContrast
-                        ? 'bg-zinc-900 text-yellow-300 border-yellow-400 placeholder-yellow-600/70'
-                        : 'bg-white text-slate-900 border-emerald-500 placeholder-slate-400'
+                      ? 'bg-zinc-900 text-yellow-300 border-yellow-400 placeholder-yellow-600/70'
+                      : 'bg-white text-slate-900 border-emerald-500 placeholder-slate-400'
                       }`}
                   />
 
-                  <button
-                    type="button"
-                    onClick={toggleVoiceInput}
-                    aria-label={isListening ? 'Stop microphone' : 'Start microphone'}
-                    title={isListening ? (lang === 'ta' ? 'மைக்கை நிறுத்த தட்டவும்' : 'Click to stop') : (lang === 'ta' ? 'குரல் உள்ளீட்டிற்கு தட்டவும்' : 'Click to speak')}
-                    className={`px-5 rounded-2xl border-2 flex items-center justify-center transition-all shrink-0 ${isListening
+                  {isVoiceSupported && (
+                    <button
+                      type="button"
+                      onClick={toggleVoiceInput}
+                      aria-label={isListening ? 'Stop microphone' : 'Start microphone'}
+                      title={isListening ? (lang === 'ta' ? 'மைக்கை நிறுத்த தட்டவும்' : 'Click to stop') : (lang === 'ta' ? 'குரல் உள்ளீட்டிற்கு தட்டவும்' : 'Click to speak')}
+                      className={`px-5 rounded-2xl border-2 flex items-center justify-center transition-all shrink-0 ${isListening
                         ? 'bg-red-600 text-white border-red-700 animate-pulse'
                         : isHighContrast
                           ? 'bg-zinc-900 text-yellow-300 border-yellow-400 hover:bg-zinc-800'
                           : 'bg-emerald-50 text-emerald-800 border-emerald-400 hover:bg-emerald-100'
-                      }`}
-                  >
-                    {isListening ? (
-                      <MicOff className="w-7 h-7" />
-                    ) : (
-                      <Mic className="w-7 h-7" />
-                    )}
-                  </button>
+                        }`}
+                    >
+                      {isListening ? (
+                        <MicOff className="w-7 h-7" />
+                      ) : (
+                        <Mic className="w-7 h-7" />
+                      )}
+                    </button>
+                  )}
                 </div>
 
                 {/* Live Listening Visual Indicator */}
                 {isListening && (
-                  <div className="flex items-center gap-2 text-sm font-black px-3.5 py-2 rounded-xl bg-red-100 border-2 border-red-400 text-red-900 animate-pulse">
-                    <span className="w-3 h-3 rounded-full bg-red-600 animate-ping"></span>
-                    <span>
-                      {lang === 'ta'
-                        ? '🎤 பேசவும்... உங்கள் குரல் கேட்கப்படுகிறது'
-                        : '🎤 Listening live... Speak your items'}
-                    </span>
+                  <div className="flex items-center justify-between gap-2 text-sm font-black px-3.5 py-2 rounded-xl bg-red-100 border-2 border-red-400 text-red-900 animate-pulse">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-red-600 animate-ping"></span>
+                      <span>
+                        {lang === 'ta'
+                          ? '🎤 பேசவும்... உங்கள் குரல் கேட்கப்படுகிறது'
+                          : '🎤 Listening live... Speak your items'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={stopListening}
+                      className="px-3 py-1 rounded-lg bg-red-700 text-white text-xs font-black hover:bg-red-800"
+                    >
+                      {t.doneSpeaking || (lang === 'ta' ? 'முடிந்தது' : 'Done')}
+                    </button>
+                  </div>
+                )}
+
+                {/* Voice Error Notice */}
+                {voiceError && !isListening && (
+                  <div className="px-3 py-1.5 text-xs md:text-sm font-semibold rounded-lg bg-amber-50 text-amber-900 border border-amber-300">
+                    ⚠️ {voiceError}
                   </div>
                 )}
 

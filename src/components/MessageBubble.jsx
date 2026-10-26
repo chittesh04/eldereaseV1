@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { CheckCircle2, ShoppingCart, Search, Lock, User, Bot, Sparkles, Terminal, Phone } from 'lucide-react';
+import { CheckCircle2, ShoppingCart, Search, Lock, User, Bot, Sparkles, Phone } from 'lucide-react';
 import { ProductSelectionCard } from './ProductSelectionCard';
 import { SpeakButton, buildBotMessageSpeechText } from './SpeakButton';
 import { translations } from '../constants/translations';
@@ -17,6 +17,7 @@ export function MessageBubble({
   const t = translations[lang] || translations.en;
   const isUser = message.sender === 'user';
   const isBot = !isUser;
+  const hasResults = Array.isArray(message.results) && message.results.length > 0;
 
   const getActionBadge = () => {
     if (!message.action) return null;
@@ -73,47 +74,50 @@ export function MessageBubble({
   };
 
   return (
-    <div 
+    <div
       className={`flex w-full my-3 ${isUser ? 'justify-end' : 'justify-start'}`}
       role="article"
       aria-label={`${isUser ? 'Your message' : 'Assistant message'} at ${message.timestamp || t.justNow}`}
     >
-      <div className={`flex gap-2 sm:gap-3 max-w-[95%] sm:max-w-[85%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
-        
-        {/* Avatar */}
-        <div 
-          className={`flex-shrink-0 w-8 h-8 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl flex items-center justify-center font-bold text-sm sm:text-lg shadow-sm border ${
-            isUser
-              ? isHighContrast 
-                ? 'bg-yellow-400 text-black border-yellow-300' 
+      <div
+        className={`flex gap-2 sm:gap-3 ${hasResults
+            ? 'w-full max-w-full sm:max-w-[92%]'
+            : 'max-w-[95%] sm:max-w-[85%]'
+          } ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
+      >
+
+        {/* Avatar (hidden on mobile when showing wide Top-5 product cards to maximize card width) */}
+        <div
+          className={`${hasResults ? 'hidden sm:flex' : 'flex'} flex-shrink-0 w-8 h-8 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl items-center justify-center font-bold text-sm sm:text-lg shadow-sm border ${isUser
+              ? isHighContrast
+                ? 'bg-yellow-400 text-black border-yellow-300'
                 : 'bg-blue-700 text-white border-blue-800'
               : isHighContrast
                 ? 'bg-zinc-800 text-yellow-300 border-yellow-400'
                 : 'bg-emerald-700 text-white border-emerald-800'
-          }`}
+            }`}
           aria-hidden="true"
         >
           {isUser ? <User className="w-4 h-4 sm:w-6 sm:h-6" /> : <Bot className="w-4 h-4 sm:w-6 sm:h-6" />}
         </div>
 
         {/* Bubble Content */}
-        <div 
-          className={`rounded-2xl px-3.5 py-3 sm:px-5 sm:py-4 shadow-md text-elder-base md:text-elder-lg border transition-all ${
-            isUser
+        <div
+          className={`${hasResults ? 'w-full' : ''} min-w-0 rounded-2xl px-3 py-3 sm:px-5 sm:py-4 shadow-md text-elder-base md:text-elder-lg border transition-all ${isUser
               ? isHighContrast
                 ? 'bg-zinc-900 text-white border-2 border-yellow-400 rounded-tr-none'
                 : 'bg-blue-800 text-white border-blue-900 rounded-tr-none'
               : isHighContrast
                 ? 'bg-black text-yellow-200 border-2 border-yellow-400 rounded-tl-none'
                 : 'bg-white text-slate-900 border-2 border-slate-300 rounded-tl-none'
-          }`}
+            }`}
         >
           {/* Action indicator tag */}
           {getActionBadge()}
 
           {/* Message Markdown Body */}
           <div className="prose prose-slate max-w-none break-words font-medium leading-relaxed">
-            <ReactMarkdown 
+            <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
                 p: ({ children }) => <p className={`mb-2 last:mb-0 ${isUser ? 'text-white' : isHighContrast ? 'text-yellow-200' : 'text-slate-900'}`}>{children}</p>,
@@ -132,7 +136,7 @@ export function MessageBubble({
           </div>
 
           {/* Interactive Product Selection Grid (if show_results) */}
-          {message.results && message.results.length > 0 && (
+          {hasResults && (
             <ProductSelectionCard
               results={message.results}
               onSelectProduct={onSelectProduct}
@@ -142,7 +146,7 @@ export function MessageBubble({
           )}
 
           {/* Footer: Timestamp & Audio Replay Button */}
-          <div className="flex items-center justify-between gap-4 mt-3 pt-2 border-t border-black/10 dark:border-white/10 text-xs font-semibold">
+          <div className="flex items-center justify-between gap-2 sm:gap-4 mt-3 pt-2 border-t border-black/10 dark:border-white/10 text-xs font-semibold">
             <span className={`opacity-80 ${isUser ? 'text-blue-100' : isHighContrast ? 'text-yellow-400' : 'text-slate-500'}`}>
               {message.timestamp || t.justNow}
             </span>

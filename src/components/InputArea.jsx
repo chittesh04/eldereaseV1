@@ -23,14 +23,22 @@ export function InputArea({
   const t = translations[lang] || translations.en;
   const inputRef = useRef(null);
 
-  // Auto-focus when OTP or Phone is needed or bot finishes thinking
+  // Only auto-focus on desktop devices with a physical keyboard (never pop up virtual keyboard on mobile/touch)
   useEffect(() => {
-    if (!isBotThinking && inputRef.current) {
+    const isTouchOrMobile =
+      typeof window !== 'undefined' &&
+      (window.matchMedia?.('(pointer: coarse)').matches ||
+        'ontouchstart' in window ||
+        window.innerWidth < 768);
+
+    if (!isTouchOrMobile && !isBotThinking && inputRef.current) {
       inputRef.current.focus();
     }
   }, [isBotThinking, isWaitingForOTP, isWaitingForPhone]);
 
   const handleMicToggle = () => {
+    // Ensure mobile keyboard stays closed when using voice mic
+    inputRef.current?.blur();
     if (isListening) {
       onStopVoice();
     } else {
@@ -43,6 +51,8 @@ export function InputArea({
     e.preventDefault();
     if (!inputText.trim() || isBotThinking) return;
     stopAllSpeech();
+    // Dismiss mobile virtual keyboard after sending message
+    inputRef.current?.blur();
     onSendMessage(inputText.trim());
   };
 
@@ -54,17 +64,16 @@ export function InputArea({
   };
 
   return (
-    <footer 
-      className={`border-t p-2.5 pb-3 sm:p-4 sticky bottom-0 z-20 transition-colors ${
-        isHighContrast 
-          ? 'bg-black border-yellow-400' 
+    <footer
+      className={`border-t p-2.5 pb-3 sm:p-4 sticky bottom-0 z-20 transition-colors ${isHighContrast
+          ? 'bg-black border-yellow-400'
           : 'bg-white border-slate-200'
-      }`}
+        }`}
       role="region"
       aria-label="Message Input Section"
     >
       <div className="max-w-4xl mx-auto space-y-2">
-        
+
         {/* Active Listening Visual Banner */}
         {isListening && (
           <div className="flex items-center justify-between px-3.5 py-1.5 sm:px-4 sm:py-2 bg-red-100 border-2 border-red-500 rounded-xl text-red-900 animate-pulse-recording">
@@ -75,6 +84,7 @@ export function InputArea({
               </span>
             </div>
             <button
+              type="button"
               onClick={onStopVoice}
               className="touch-target px-3 py-1 sm:px-4 sm:py-1.5 rounded-lg bg-red-700 text-white font-black hover:bg-red-800 text-xs sm:text-sm"
               aria-label={t.doneSpeaking}
@@ -100,7 +110,10 @@ export function InputArea({
             </div>
             <button
               type="button"
-              onClick={() => onSendMessage(defaultPhone)}
+              onClick={() => {
+                inputRef.current?.blur();
+                onSendMessage(defaultPhone);
+              }}
               className="touch-target px-3 py-1 sm:px-4 sm:py-1.5 rounded-lg bg-blue-700 text-white font-black text-xs sm:text-sm hover:bg-blue-800 shadow transition-all"
               aria-label={`Use default phone ${defaultPhone}`}
             >
@@ -118,7 +131,10 @@ export function InputArea({
             {onOpenOtpKeypad && (
               <button
                 type="button"
-                onClick={onOpenOtpKeypad}
+                onClick={() => {
+                  inputRef.current?.blur();
+                  onOpenOtpKeypad();
+                }}
                 className="touch-target px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-amber-700 text-white font-bold text-xs sm:text-sm flex items-center gap-1.5 hover:bg-amber-800"
                 aria-label={t.openBigKeypad}
               >
@@ -131,20 +147,19 @@ export function InputArea({
 
         {/* Main Input Form */}
         <form onSubmit={handleSubmit} className="flex items-center gap-2 sm:gap-3">
-          
+
           {/* Voice Input Microphone Button */}
           {isVoiceSupported ? (
             <button
               type="button"
               onClick={handleMicToggle}
               disabled={isBotThinking}
-              className={`touch-target w-12 h-12 sm:w-14 sm:h-14 shrink-0 rounded-2xl flex items-center justify-center font-bold transition-all shadow-md ${
-                isListening
+              className={`touch-target w-12 h-12 sm:w-14 sm:h-14 shrink-0 rounded-2xl flex items-center justify-center font-bold transition-all shadow-md ${isListening
                   ? 'bg-red-600 text-white border-4 border-red-300 animate-pulse scale-105'
                   : isHighContrast
                     ? 'bg-yellow-400 text-black border-2 border-yellow-300 hover:bg-yellow-300'
                     : 'bg-emerald-600 text-white border-2 border-emerald-700 hover:bg-emerald-700'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
               title={isListening ? t.micStopTitle : t.micButtonTitle}
               aria-label={isListening ? t.micStopTitle : t.micButtonTitle}
             >
@@ -155,7 +170,7 @@ export function InputArea({
               )}
             </button>
           ) : (
-            <div 
+            <div
               className="touch-target w-12 h-12 sm:w-14 sm:h-14 shrink-0 rounded-2xl bg-slate-200 text-slate-500 flex items-center justify-center cursor-not-allowed"
               title={t.micUnsupported}
               aria-label={t.micUnsupported}
@@ -179,19 +194,18 @@ export function InputArea({
               onKeyDown={handleKeyDown}
               disabled={isBotThinking}
               placeholder={
-                isBotThinking 
-                  ? t.inputBotThinkingPlaceholder 
-                  : isWaitingForOTP 
-                    ? t.inputOtpPlaceholder 
+                isBotThinking
+                  ? t.inputBotThinkingPlaceholder
+                  : isWaitingForOTP
+                    ? t.inputOtpPlaceholder
                     : isWaitingForPhone
                       ? (lang === 'ta' ? 'மொபைல் எண் உள்ளிடவும்...' : 'Type your mobile number...')
                       : t.inputPlaceholder
               }
-              className={`w-full touch-target px-3.5 py-2.5 sm:px-4 sm:py-3.5 rounded-2xl text-base sm:text-lg md:text-elder-lg font-semibold border-2 transition-all outline-none shadow-inner ${
-                isHighContrast
+              className={`w-full touch-target px-3.5 py-2.5 sm:px-4 sm:py-3.5 rounded-2xl text-base sm:text-lg md:text-elder-lg font-semibold border-2 transition-all outline-none shadow-inner ${isHighContrast
                   ? 'bg-black text-yellow-200 border-yellow-400 placeholder:text-yellow-700 focus:border-yellow-300'
                   : 'bg-slate-50 text-slate-900 border-slate-300 placeholder:text-slate-500 focus:border-blue-600 focus:bg-white'
-              } disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-wait`}
+                } disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-wait`}
               aria-label={isWaitingForOTP ? t.otpModalTitle : isWaitingForPhone ? 'Mobile number' : t.inputPlaceholder}
             />
           </div>
@@ -200,11 +214,10 @@ export function InputArea({
           <button
             type="submit"
             disabled={!inputText.trim() || isBotThinking}
-            className={`touch-target w-12 h-12 sm:w-auto sm:px-5 sm:py-3.5 shrink-0 rounded-2xl flex items-center justify-center gap-2 font-black text-base sm:text-elder-base transition-all shadow-md ${
-              isHighContrast
+            className={`touch-target w-12 h-12 sm:w-auto sm:px-5 sm:py-3.5 shrink-0 rounded-2xl flex items-center justify-center gap-2 font-black text-base sm:text-elder-base transition-all shadow-md ${isHighContrast
                 ? 'bg-yellow-400 text-black border-2 border-yellow-300 hover:bg-yellow-300'
                 : 'bg-blue-700 text-white border-2 border-blue-800 hover:bg-blue-800'
-            } disabled:opacity-40 disabled:cursor-not-allowed`}
+              } disabled:opacity-40 disabled:cursor-not-allowed`}
             title={t.sendButton}
             aria-label={t.sendButton}
           >
