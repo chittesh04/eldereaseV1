@@ -44,6 +44,7 @@ export function App() {
   }, [messages]);
 
   const [inputText, setInputText] = useState('');
+  const voiceBaseTextRef = useRef('');
 
   // Order state machine (replaces boolean soup)
   const {
@@ -369,9 +370,12 @@ export function App() {
     onMessage: handleIncomingMessage,
   });
 
-  // Voice-to-Text Recognition Hook (Tamil & English support)
+  // Voice-to-Text Recognition Hook (Tamil & English support) — Appends to existing text!
   const handleVoiceResult = useCallback((recognizedText) => {
-    setInputText(recognizedText);
+    const cleanSpoken = (recognizedText || '').trim();
+    if (!cleanSpoken) return;
+    const base = voiceBaseTextRef.current;
+    setInputText(base ? `${base} ${cleanSpoken}` : cleanSpoken);
   }, []);
 
   const {
@@ -386,10 +390,12 @@ export function App() {
     lang: lang === 'ta' ? 'ta-IN' : 'en-IN',
   });
 
-  // Sync interim transcript into input box
+  // Sync interim transcript into input box while preserving previous text
   useEffect(() => {
     if (transcript) {
-      setInputText(transcript);
+      const cleanSpoken = transcript.trim();
+      const base = voiceBaseTextRef.current;
+      setInputText(base ? `${base} ${cleanSpoken}` : cleanSpoken);
     }
   }, [transcript]);
 
@@ -446,6 +452,7 @@ export function App() {
 
     setMessages((prev) => [...prev, userMessage]);
     setInputText('');
+    voiceBaseTextRef.current = '';
     orderDispatch({ type: 'USER_SENT_MESSAGE' });
 
     const payload = {
@@ -491,6 +498,7 @@ export function App() {
     setOrderSuccessData(null);
     lastSpokenSignatureRef.current = null;
     lastSpokenActionRef.current = null;
+    voiceBaseTextRef.current = '';
     setMessages([
       {
         id: 'welcome-' + Date.now(),
@@ -580,6 +588,8 @@ export function App() {
         isListening={isListening}
         onStartVoice={() => {
           stopAllSpeech();
+          // Snapshot whatever text is already in the input box so the 2nd mic click appends to it!
+          voiceBaseTextRef.current = inputText.trim();
           startListening();
         }}
         onStopVoice={stopListening}
